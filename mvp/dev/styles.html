@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light">
+<title>Style variants: shopping canvas</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; height: 100vh; display: flex; flex-direction: column; font: 13px/1.45 -apple-system, system-ui, sans-serif; color: #222; background: #e9e9ec; }
+  body.dark { background: #0b0b0d; color: #eee; }
+  header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; }
+  header strong { font-size: 14px; }
+  header .spacer { flex: 1; }
+  button, a.btn { font: inherit; color: inherit; padding: 4px 10px; border-radius: 7px; border: 1px solid #8884; background: #8881; cursor: pointer; text-decoration: none; }
+  button.on { background: #222; color: #fff; border-color: #222; }
+  body.dark button.on { background: #eee; color: #111; }
+  #cols { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(var(--n, 3), minmax(0, 1fr)); gap: 10px; padding: 0 14px 14px; }
+  #cols.one { grid-template-columns: 1fr; }
+  #cols.one .col:not(.focus) { display: none; }
+  .col { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .cap { padding: 2px 2px 8px; }
+  .cap b { font-size: 14px; }
+  .cap .refs { opacity: 0.65; margin-left: 6px; }
+  .cap p { margin: 2px 0 0; opacity: 0.65; font-size: 12px; }
+  .cap button { float: right; font-size: 12px; }
+  .frame { flex: 1; min-height: 0; border-radius: 12px; overflow: hidden; border: 1px solid #8883; background: #fff; }
+  .frame iframe { width: 100%; height: 100%; border: 0; display: block; }
+  #msg { opacity: 0.65; }
+</style>
+</head>
+<body>
+<header>
+  <strong>Style variants</strong>
+  <span id="msg">One sample canvas in every style listed in view/styles/variants.mjs.</span>
+  <span class="spacer"></span>
+  <button id="light" class="on">Light</button><button id="dark">Dark</button>
+  <button id="reset" title="Start again from a fresh sample canvas">New sample</button>
+  <a class="btn" id="to-host" href="#">Dev host</a>
+</header>
+<div id="cols"></div>
+<script>/*JS*/</script>
+</body>
+</html>

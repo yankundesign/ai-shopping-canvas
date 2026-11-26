@@ -1,0 +1,80 @@
+<!doctype html>
+<html data-style="trace" data-theme="light" data-mode="inline">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shopping canvas</title>
+<style>/*CSS*/</style>
+</head>
+<body>
+<header id="bar">
+  <span id="title">Shopping canvas</span>
+  <span id="scope" class="muted"></span>
+  <span id="waiting" hidden><span id="waiting-text"></span><button id="send-now" type="button">Send now</button></span>
+  <span id="status" class="muted" aria-live="polite"></span>
+  <span class="spacer"></span>
+  <button id="expand" type="button" hidden>Open beside chat</button>
+  <button id="collapse" type="button" class="quiet" hidden>Back to chat</button>
+  <button id="dev-toggle" type="button" class="quiet" hidden>Dev</button>
+</header>
+
+<div id="stage">
+  <div id="world"></div>
+  <div id="marquee" hidden></div>
+  <p id="empty" class="muted" hidden>No cards yet.</p>
+
+  <!-- The finalists: cards the person pulled up to compare. Also their shortlist. -->
+  <section id="finalists" hidden aria-label="Finalists">
+    <div id="fin-head">
+      <button id="fin-toggle" type="button" class="quiet" aria-expanded="true"><span id="fin-title">Finalists</span></button>
+      <span id="fin-shared"></span>
+      <button id="fin-clear" type="button" class="quiet" title="Put every finalist back on the canvas">Clear</button>
+    </div>
+    <div id="fin-body">
+      <div id="fin-row"></div>
+      <div id="fin-lines"></div>
+    </div>
+  </section>
+  <div id="drop-hint" hidden>Drop here to compare</div>
+
+  <div id="markers"></div>
+  <div id="pointer-note" hidden><span class="face" aria-hidden="true"></span><span id="pointer-text"></span><button id="pointer-clear" type="button" class="quiet" aria-label="Dismiss">×</button></div>
+
+  <div id="composer" hidden>
+    <input id="composer-input" autocomplete="off" maxlength="80">
+    <span id="composer-scope" class="muted"></span>
+    <button id="composer-submit" type="button" class="primary">Leave it</button>
+  </div>
+  <div id="dock">
+    <button id="add-detail" type="button" title="Leave a detail for the agent to fill">+ Detail</button>
+    <button id="add-card" type="button" title="Leave an empty card with a hint">+ Card</button>
+    <span class="sep" id="dock-sep" hidden></span>
+    <button id="compare" type="button" hidden>Compare</button>
+    <button id="trash" type="button" hidden>Delete</button>
+    <button id="undo" type="button" hidden>Undo</button>
+  </div>
+  <div id="zoom">
+    <button id="tidy" type="button" class="quiet" title="Line the cards up in a grid">Tidy</button>
+    <span class="sep"></span>
+    <button id="zoom-out" type="button" class="quiet" aria-label="Zoom out">−</button>
+    <button id="zoom-fit" type="button" class="quiet" title="Fit all cards"><span id="zoom-level">100%</span></button>
+    <button id="zoom-in" type="button" class="quiet" aria-label="Zoom in">+</button>
+  </div>
+</div>
+
+<aside id="dev" hidden>
+  <div class="dev-row"><strong>Dev</strong><span class="spacer"></span><button id="dev-close" type="button" class="quiet">Close</button></div>
+  <div class="dev-label">Style variant</div>
+  <div id="dev-styles"></div>
+  <div class="dev-label">Theme</div>
+  <div id="dev-themes"><button type="button" data-theme-pick="">Host</button><button type="button" data-theme-pick="light">Light</button><button type="button" data-theme-pick="dark">Dark</button></div>
+  <div class="dev-label">Host</div>
+  <div id="dev-host" class="muted"></div>
+  <div class="dev-label">Last context sent to the agent</div>
+  <pre id="dev-context"></pre>
+  <div class="dev-label">View log</div>
+  <pre id="dev-log"></pre>
+</aside>
+<script>/*JS*/</script>
+</body>
+</html>

@@ -1,0 +1,267 @@
+{
+  "ranAt": "2026-11-24T22:23:03.325Z",
+  "results": [
+    {
+      "link": "https://www.rei.com/product/237598/merrell-moab-3-waterproof-hiking-shoes-mens",
+      "check": "not_checked",
+      "reason": "The store refused the reader (403)",
+      "photo": null,
+      "price": null,
+      "name": null,
+      "store": "rei.com",
+      "methods": [],
+      "finalUrl": null,
+      "ms": 378
+    },
+    {
+      "link": "https://www.merrell.com/US/en/moab-3-waterproof/52474M.html",
+      "check": "checked",
+      "reason": null,
+      "photo": "https://thekit.wolverineworldwide.com/match/media_lookup/MRLM-J00005784-091225-F26-000/?preset=dw-large",
+      "price": null,
+      "name": "Moab 3 Waterproof",
+      "store": "Merrell",
+      "methods": [
+        "meta-photo"
+      ],
+      "finalUrl": "https://www.merrell.com/US/en/moab-3-waterproof/52474M.html",
+      "ms": 663
+    },
+    {
+      "link": "https://www.rei.com/product/229856/keen-targhee-iv-waterproof-hiking-shoes-mens",
+      "check": "not_checked",
+      "reason": "The store refused the reader (403)",
+      "photo": null,
+      "price": null,
+      "name": null,
+      "store": "rei.com",
+      "methods": [],
+      "finalUrl": null,
+      "ms": 473
+    },
+    {
+      "link": "https://www.zappos.com/p/mens-keen-targhee-iv-waterproof-sea-turtle-roasted-pecan/product/9955906/color/1096579",
+      "check": "checked",
+      "reason": null,
+      "photo": "https://m.media-amazon.com/images/I/71X8MF1pf2L._SX700_.jpg",
+      "price": {
+        "amount": 143.99,
+        "currency": "USD"
+      },
+      "name": "Targhee IV Waterproof",
+      "store": "Zappos.com",
+      "methods": [
+        "json-ld"
+      ],
+      "finalUrl": "https://www.zappos.com/p/mens-keen-targhee-iv-waterproof-sea-turtle-roasted-pecan/product/9955906/color/1096579",
+      "ms": 1024
+    },
+    {
+      "link": "https://www.dickssportinggoods.com/p/keen-mens-targhee-iv-waterproof-hiking-shoes-23keemtrghvwtrprfmns/23keemtrghvwtrprfmns",
+      "check": "not_checked",
+      "reason": "The store refused the reader (403)",
+      "photo": null,
+      "price": null,
+      "name": null,
+      "store": "dickssportinggoods.com",
+      "methods": [],
+      "finalUrl": null,
+      "ms": 447
+    },
+    {
+      "link": "https://www.dsw.com/product/keen-targhee-iv-waterproof-hiking-shoe---mens/594110",
+      "check": "not_checked",
+      "reason": "No photo or price found on the page",
+      "photo": null,
+      "price": null,
+      "name": null,
+      "store": "DSW.COM",
+      "methods": [],
+      "finalUrl": "https://www.dsw.com/product/keen-targhee-iv-waterproof-hiking-shoe---mens/594110",
+      "ms": 335
+    },
+    {
+      "link": "https://www.rei.com/product/249054/salomon-x-ultra-360-gore-tex-hiking-shoes-mens",
+      "check": "not_checked",
+      "reason": "The store refused the reader (403)",
+      "photo": null,
+      "price": null,
+      "name": null,
+      "store": "rei.com",
+      "methods": [],
+      "finalUrl": null,
+      "ms": 210
+    },
+    {
+      "link": "https://www.salomon.com/en-us/product/x-ultra-360-gore-tex-li5205/L47865300",
+      "check": "checked",
+      "reason": null,
+      "photo": "https://cdn.dam.salomon.com/2d8c0305-bca1-4001-8fe5-b2f40093437d/L47865300/PNG-2000px-max-72dpi.png?pad=0.12,0.12,0.12,0.12",
+      "price": {
+        "amount": 155,
+        "currency": "USD"
+      },
+      "name": "X ULTRA 360 GORE-TEX",
+      "store": "salomon.com",
+      "methods": [
+        "json-ld",
+        "json-ld"
+      ],
+      "finalUrl": "https://www.salomon.com/en-us/product/x-ultra-360-gore-tex-li5205/L47865300",
+      "ms": 1069
+    },
+    {
+      "link": "https://www.columbia.com/p/mens-newton-ridge-hiking-boot-195981588811.html",
+      "check": "not_checked",
+      "reason": "The store refused the reader (403)",
+      "photo": null,
+      "price": null,
+      "name": null,
+      "store": "columbia.com",
+      "methods": [],
+      "finalUrl": null,
+      "ms": 507
+    },
+    {
+      "link": "https://backcountry.com/columbia-newton-ridge-hiking-boot-mens",
+      "check": "not_checked",
+      "reason": "The store refused the reader (403)",
+      "photo": null,
+      "price": null,
+      "name": null,
+      "store": "backcountry.com",
+      "methods": [],
+      "finalUrl": null,
+      "ms": 851
+    },
+    {
+      "link": "https://obozfootwear.com/products/mens-sawtooth-x-low-waterproof",
+      "check": "checked",
+      "reason": null,
+      "photo": "https://obozfootwear.com/cdn/shop/files/M_SawtoothXLowB-Dry_ClassicBrown_outside.jpg?v=1771894072&width=2048",
+      "price": {
+        "amount": 166.5,
+        "currency": "USD"
+      },
+      "name": "Men's Sawtooth X Low Waterproof Hiking Shoe",
+      "store": "Oboz Footwear",
+      "methods": [
+        "json-ld"
+      ],
+      "finalUrl": "https://obozfootwear.com/products/mens-sawtooth-x-low-waterproof",
+      "ms": 1035
+    },
+    {
+      "link": "https://www.backcountry.com/oboz-sawtooth-x-low-waterproof-shoe-mens",
+      "check": "not_checked",
+      "reason": "The store refused the reader (403)",
+      "photo": null,
+      "price": null,
+      "name": null,
+      "store": "backcountry.com",
+      "methods": [],
+      "finalUrl": null,
+      "ms": 398
+    },
+    {
+      "link": "https://www.rei.com/product/892886/garmont-dragontail-mnt-gtx-hiking-shoes-mens",
+      "check": "not_checked",
+      "reason": "The store refused the reader (403)",
+      "photo": null,
+      "price": null,
+      "name": null,
+      "store": "rei.com",
+      "methods": [],
+      "finalUrl": null,
+      "ms": 205
+    },
+    {
+      "link": "https://www.publiclands.com/p/merrell-mens-moab-3-waterproof-hiking-shoes-22mrrmmb3wpgrntxxfbo/22mrrmmb3wpgrntxxfbo",
+      "check": "not_checked",
+      "reason": "The store refused the reader (403)",
+      "photo": null,
+      "price": null,
+      "name": null,
+      "store": "publiclands.com",
+      "methods": [],
+      "finalUrl": null,
+      "ms": 428
+    },
+    {
+      "link": "https://www.sportsmansguide.com/product/index/merrell-mens-moab-3-waterproof-hiking-shoes?a=2333445",
+      "check": "not_checked",
+      "reason": "The store refused the reader (403)",
+      "photo": null,
+      "price": null,
+      "name": null,
+      "store": "sportsmansguide.com",
+      "methods": [],
+      "finalUrl": null,
+      "ms": 416
+    },
+    {
+      "link": "https://www.mec.ca/en/product/6027-833/keen-targhee-iv-low-waterproof-light-trail-shoes-mens",
+      "check": "not_checked",
+      "reason": "The store refused the reader (403)",
+      "photo": null,
+      "price": null,
+      "name": null,
+      "store": "mec.ca",
+      "methods": [],
+      "finalUrl": null,
+      "ms": 444
+    },
+    {
+      "link": "https://www.mynavyexchange.com/merrell-men-s-moab-3-waterproof-hiking-shoe/20168716",
+      "check": "checked",
+      "reason": null,
+      "photo": "https://www.mynavyexchange.com/products/images/medium/20168716_020.jpg",
+      "price": null,
+      "name": "Merrell Men's Moab 3 Waterproof Hiking Shoe",
+      "store": "My Navy Exchange",
+      "methods": [
+        "meta-photo"
+      ],
+      "finalUrl": "https://www.mynavyexchange.com/merrell-men-s-moab-3-waterproof-hiking-shoe/20168716",
+      "ms": 1638
+    },
+    {
+      "link": "https://www.rei.com/product/810814/patagonia-drifter-ac-hiking-shoes-mens",
+      "check": "not_checked",
+      "reason": "The store refused the reader (403)",
+      "photo": null,
+      "price": null,
+      "name": null,
+      "store": "rei.com",
+      "methods": [],
+      "finalUrl": null,
+      "ms": 217
+    },
+    {
+      "link": "https://www.rei.com/product/203332/oboz-sawtooth-x-low-waterproof-hiking-shoes-mens",
+      "check": "not_checked",
+      "reason": "The store refused the reader (403)",
+      "photo": null,
+      "price": null,
+      "name": null,
+      "store": "rei.com",
+      "methods": [],
+      "finalUrl": null,
+      "ms": 285
+    },
+    {
+      "link": "https://www.merrell.com/US/en/moab-2-waterproof-wide-width/27944M.html",
+      "check": "checked",
+      "reason": null,
+      "photo": "https://thekit.wolverineworldwide.com/transform/2fb8d097-1097-4c79-981d-013bff3ccc16/logo-persistent_Merrell?io=transform:fit,width:500,height:500&format=png",
+      "price": null,
+      "name": "Merrell Official: Top Rated Hiking Footwear & Outdoor Gear",
+      "store": "Merrell",
+      "methods": [
+        "meta-photo"
+      ],
+      "finalUrl": "https://www.merrell.com/US/en/moab-2-waterproof-wide-width/27944M.html",
+      "ms": 310
+    }
+  ]
+}

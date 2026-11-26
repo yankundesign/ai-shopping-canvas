@@ -1,0 +1,212 @@
+/* Structure and behaviour: layout, sizes that placement depends on, states.
+   Everything visual is a token. A style (trace.css, or another listed in variants.mjs)
+   sets the tokens for light and dark, and may restyle cards, the finalists area
+   and pointing. Variants never change layout or behaviour. */
+
+:root {
+  --card-w: 232px; /* matches CARD_W in main.js */
+  --fin-w: 172px;
+
+  /* Token defaults, so a new variant can start from a short file. */
+  --bg: #f4f4f5; --bg-image: none; --bg-size: 24px;
+  --surface: #fff; --plate: #f0f0f2; --panel: #ffffffee; --panel-blur: 0px;
+  --ink: #1c1c1e; --ink-2: #63636a; --ink-3: #9a9aa2; --line: #e3e3e7;
+  --sel: #1c1c1e; --agent: #2f6bff; --agent-ink: #fff; --agent-soft: #2f6bff22;
+  --flag: #b3261e; --ok: #3d7a4a; --wait-bg: #ecefe2; --wait-ink: #4d5a2c;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-name: var(--font); --font-num: var(--font); --font-label: var(--font);
+  --fs: 13px; --fs-small: 11px; --name-size: 14px; --name-weight: 600; --name-tracking: 0;
+  --price-size: 20px; --price-weight: 400; --font-price: var(--font); --pop: var(--surface);
+  --label-size: 11px; --label-case: none; --label-tracking: 0;
+  --r-card: 10px; --r-photo: 0px; --r-ctl: 8px; --r-pill: 999px;
+  --pad: 12px; --photo-inset: 0px; --photo-ratio: 4 / 3; --photo-pad: 10px; --photo-blend: multiply;
+  --border-card: 1px solid var(--line); --shadow-card: none;
+  --shadow-lift: 0 12px 32px rgba(0, 0, 0, 0.16); --shadow-panel: 0 1px 0 var(--line);
+  --ring-sel: 0 0 0 2px var(--sel); --ring-agent: 0 0 0 2px var(--agent), 0 0 0 6px var(--agent-soft);
+  --dur: 0.18s; --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  color-scheme: light;
+}
+:root[data-theme="dark"] { color-scheme: dark; }
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+/* Inside the chat the canvas has a fixed height; beside the chat it fills the panel. */
+body { height: 640px; display: flex; flex-direction: column; overflow: hidden; font: var(--fs)/1.4 var(--font); background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased; }
+:root[data-mode="fullscreen"] body { height: 100vh; }
+.muted { color: var(--ink-2); }
+.spacer { flex: 1; }
+
+button { font: inherit; color: var(--ink); padding: 5px 11px; border-radius: var(--r-ctl); border: 1px solid var(--line); background: var(--surface); cursor: pointer; transition: background var(--dur), border-color var(--dur), opacity var(--dur); }
+button:hover { border-color: var(--ink-3); }
+button:disabled { opacity: 0.45; cursor: default; }
+button.quiet { border-color: transparent; background: transparent; color: var(--ink-2); }
+button.quiet:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 7%, transparent); }
+button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+:focus-visible { outline: 2px solid var(--sel); outline-offset: 2px; }
+
+/* ---------- top bar ---------- */
+#bar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 42px; padding: 6px 12px; background: var(--panel); backdrop-filter: blur(var(--panel-blur)); box-shadow: var(--shadow-panel); position: relative; z-index: 5; white-space: nowrap; }
+#title { font-family: var(--font-name); font-weight: var(--name-weight); font-size: var(--name-size); overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+#scope { font-variant-numeric: tabular-nums; }
+#waiting { display: inline-flex; align-items: center; gap: 8px; padding: 2px 3px 2px 10px; border-radius: var(--r-pill); background: var(--wait-bg); color: var(--wait-ink); }
+#waiting button { padding: 2px 10px; border-radius: var(--r-pill); }
+#waiting:not(:has(#send-now:not([hidden]))) { padding-right: 10px; }
+#status { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#status:empty { display: none; }
+
+/* ---------- the free canvas ---------- */
+#stage { flex: 1; position: relative; overflow: hidden; background-color: var(--bg); background-image: var(--bg-image); background-size: calc(var(--bg-size) * var(--cam-k, 1)) calc(var(--bg-size) * var(--cam-k, 1)); background-position: var(--cam-x, 0) var(--cam-y, 0); touch-action: none; cursor: default; }
+#stage.panning { cursor: grabbing; }
+#world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+#world.gliding { transition: transform 0.3s var(--ease); }
+#world.tidying .card { transition: left 0.35s var(--ease), top 0.35s var(--ease), box-shadow var(--dur) var(--ease); }
+#marquee { position: absolute; border: 1px solid var(--sel); background: color-mix(in srgb, var(--sel) 8%, transparent); border-radius: 2px; pointer-events: none; z-index: 3; }
+#empty { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; pointer-events: none; }
+
+/* ---------- a card ---------- */
+.card { position: absolute; width: var(--card-w); display: flex; flex-direction: column; background: var(--surface); border: var(--border-card); border-radius: var(--r-card); box-shadow: var(--shadow-card); user-select: none; -webkit-user-select: none; outline: none; transition: box-shadow var(--dur) var(--ease); }
+.card.selected { box-shadow: var(--ring-sel), var(--shadow-card); }
+.card.pointed { box-shadow: var(--ring-agent), var(--shadow-card); }
+.card.selected.pointed { box-shadow: var(--ring-sel), 0 0 0 4px var(--surface), 0 0 0 6px var(--agent), 0 0 0 10px var(--agent-soft); }
+.card.dragging { z-index: 4; box-shadow: var(--ring-sel), var(--shadow-lift); cursor: grabbing; }
+.card:focus-visible { outline: 2px solid var(--sel); outline-offset: 3px; }
+
+.photo { position: relative; margin: var(--photo-inset) var(--photo-inset) 0; aspect-ratio: var(--photo-ratio); background: var(--plate); border-radius: var(--r-photo); display: grid; place-items: center; overflow: hidden; }
+.card:not(.fin) > .photo { border-top-left-radius: max(var(--r-photo), calc(var(--r-card) - var(--photo-inset) - 1px)); border-top-right-radius: max(var(--r-photo), calc(var(--r-card) - var(--photo-inset) - 1px)); }
+.photo img { width: 100%; height: 100%; padding: var(--photo-pad); object-fit: contain; mix-blend-mode: var(--photo-blend); }
+.nophoto { color: var(--ink-3); font-size: var(--fs-small); }
+
+/* The body's children are laid out by the card, so a variant can reorder them.
+   Every line is one line high, so all cards are the same height. In order of weight:
+   photo and price, then the name, then the details; labels (store, detail names, link) stay quiet. */
+.body { display: contents; }
+.body > * { margin: 0 var(--pad); }
+.store { order: 1; margin-top: 10px; color: var(--ink-2); font: var(--label-size)/1.3 var(--font-label); text-transform: var(--label-case); letter-spacing: var(--label-tracking); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.store:empty::before { content: "\00a0"; }
+.name { order: 2; position: relative; margin-top: 12px; font: var(--name-weight) var(--name-size)/1.3 var(--font-name); letter-spacing: var(--name-tracking); }
+.name > span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A name cut short opens in place on hover, over what is below it. */
+.card:not(.dragging) .name.cut:hover > span { position: absolute; z-index: 3; left: -7px; right: -7px; top: -5px; padding: 5px 7px; white-space: normal; background: var(--pop); border-radius: 8px; box-shadow: var(--shadow-lift); }
+.price-row { order: 3; margin-top: 10px; display: flex; align-items: baseline; gap: 8px; min-width: 0; white-space: nowrap; }
+/* The price is the largest text on the card, so it needs no weight, and room from the name. */
+.price { flex: none; font: var(--price-weight) var(--price-size)/1.15 var(--font-price); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.price.none { color: var(--ink-3); font-size: var(--fs); font-weight: 400; line-height: calc(var(--price-size) * 1.15); }
+.meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-3); font-size: var(--fs-small); }
+.details { order: 4; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); display: grid; gap: 6px; }
+.detail { display: grid; grid-template-columns: minmax(64px, 40%) minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.detail dt { color: var(--ink-2); font: var(--label-size)/1.4 var(--font-label); text-transform: var(--label-case); letter-spacing: var(--label-tracking); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.detail dd { margin: 0; display: flex; align-items: center; min-width: 0; line-height: 1.4; }
+.detail .val { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.detail.missing .val { color: var(--ink-3); }
+.src { flex: none; margin-left: 6px; color: var(--ink-3); font-size: var(--fs-small); text-decoration: none; }
+a.src:hover { color: var(--ink); text-decoration: underline; }
+.wait { color: var(--wait-ink); background: var(--wait-bg); padding: 1px 8px; border-radius: var(--r-pill); font-size: var(--fs-small); white-space: nowrap; animation: wait 1.8s ease-in-out infinite; }
+.cant { color: var(--ink-3); border: 1px solid var(--line); padding: 0 8px; border-radius: var(--r-pill); font-size: var(--fs-small); white-space: nowrap; }
+@keyframes wait { 50% { opacity: 0.55; } }
+/* On the photo: what only some cards have, so it never changes a card's height. */
+.badges { position: absolute; left: 7px; top: 7px; right: 7px; display: flex; flex-wrap: wrap; gap: 4px; pointer-events: none; }
+.tag { padding: 1px 7px; border-radius: var(--r-pill); background: var(--ink); color: var(--surface); font-size: var(--fs-small); white-space: nowrap; }
+.flag { padding: 1px 7px; border-radius: var(--r-pill); background: var(--flag); color: #fff; font-size: var(--fs-small); white-space: nowrap; pointer-events: auto; }
+.credit { position: absolute; left: 7px; bottom: 6px; max-width: calc(100% - 14px); padding: 1px 6px; border-radius: 5px; background: color-mix(in srgb, var(--plate) 82%, transparent); color: var(--ink-3); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.credit a { color: inherit; }
+.foot { order: 7; margin-top: 12px; margin-bottom: var(--pad); display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.open { color: var(--ink-2); font-size: var(--fs-small); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.open::after { content: " ↗"; }
+.open:hover { color: var(--ink); text-decoration-color: currentColor; }
+
+/* An answer that just arrived, and a card that just landed. */
+.detail.arrived dd { animation: arrive 0.6s var(--ease) both; }
+.card.landed { animation: land 0.5s var(--ease) both; }
+@keyframes arrive { from { opacity: 0; transform: translateY(4px); } }
+@keyframes land { from { opacity: 0; transform: scale(0.96); } }
+
+/* A request for one more product: an empty card with the person's hint. */
+.card.request { min-height: 300px; background: transparent; border: 1.5px dashed var(--ink-3); box-shadow: none; }
+.card.request.selected { box-shadow: var(--ring-sel); }
+.req { margin: auto; padding: var(--pad); display: grid; justify-items: center; gap: 10px; text-align: center; }
+.req .hint { font: var(--name-weight) calc(var(--name-size) + 3px) / 1.2 var(--font-name); }
+.req .hint::before { content: "“"; } .req .hint::after { content: "”"; }
+
+/* ---------- pointing ---------- */
+.point-chip { position: absolute; left: 10px; bottom: calc(100% - 9px); z-index: 2; display: inline-flex; align-items: center; gap: 5px; max-width: calc(100% - 20px); padding: 2px 9px; border-radius: var(--r-pill); background: var(--agent); color: var(--agent-ink); font-size: var(--fs-small); font-weight: 600; white-space: nowrap; pointer-events: none; animation: point-in 0.35s var(--ease) both; }
+.point-chip span:last-child { overflow: hidden; text-overflow: ellipsis; }
+@keyframes point-in { from { opacity: 0; transform: translateY(6px) scale(0.92); } }
+.face { display: none; }
+#pointer-note { position: absolute; left: 50%; bottom: 62px; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 6px; max-width: min(440px, calc(100% - 24px)); padding: 4px 4px 4px 12px; border-radius: var(--r-pill); background: var(--agent); color: var(--agent-ink); box-shadow: var(--shadow-lift); animation: point-in 0.35s var(--ease) both; }
+#pointer-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+#pointer-note button { color: inherit; padding: 0 7px; border-radius: var(--r-pill); font-size: 15px; line-height: 20px; }
+#markers { position: absolute; inset: 0; pointer-events: none; z-index: 6; }
+.marker { position: absolute; pointer-events: auto; display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: var(--r-pill); font-size: var(--fs-small); font-weight: 600; white-space: nowrap; box-shadow: var(--shadow-lift); border: 0; }
+.marker.agent { background: var(--agent); color: var(--agent-ink); }
+.marker.new { background: var(--ink); color: var(--bg); }
+.marker .arrow { display: inline-block; }
+
+/* ---------- finalists ---------- */
+#finalists { position: absolute; left: 10px; right: 10px; top: 10px; z-index: 4; max-height: min(64%, calc(100% - 84px)); display: flex; flex-direction: column; background: var(--panel); backdrop-filter: blur(var(--panel-blur)); border: 1px solid var(--line); border-radius: calc(var(--r-card) + 4px); box-shadow: var(--shadow-lift); transition: box-shadow var(--dur), border-color var(--dur); }
+#finalists.over, #drop-hint.over { border-color: var(--sel); box-shadow: var(--ring-sel), var(--shadow-lift); }
+#fin-head { flex: none; display: flex; align-items: baseline; gap: 10px; padding: 6px 12px 0 6px; }
+#fin-toggle { padding: 3px 7px; font: var(--label-size)/1.3 var(--font-label); text-transform: var(--label-case); letter-spacing: var(--label-tracking); color: var(--ink-2); }
+#fin-toggle::after { content: " ▾"; }
+#finalists.closed #fin-toggle::after { content: " ▸"; }
+#fin-clear { flex: none; margin-left: auto; padding: 3px 7px; font: var(--label-size)/1.3 var(--font-label); text-transform: var(--label-case); letter-spacing: var(--label-tracking); color: var(--ink-2); }
+#fin-shared { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#fin-body { overflow: auto; padding: 0 12px 12px; }
+#finalists.closed #fin-body { display: none; }
+#finalists.closed #fin-head { padding-bottom: 6px; }
+#fin-row { display: flex; gap: 12px; align-items: flex-start; min-width: 0; overflow-x: auto; padding: 14px 3px 4px; margin: 0 -3px; }
+.card.fin { position: relative; flex: 1 1 0; min-width: 132px; max-width: var(--fin-w); width: auto; --photo-ratio: 16 / 10; --photo-pad: 6px; --name-size: 13.5px; }
+.card.fin { --price-size: 17px; }
+.card.fin .foot { white-space: nowrap; }
+.card.fin .credit, .card.fin .src, .card.fin .meta.checked { display: none; }
+.card.fin .details { gap: 4px; }
+.card.fin .detail { grid-template-columns: 1fr; gap: 0; }
+.card.lifted { opacity: 0.3; }
+.card.ghost { position: fixed; z-index: 50; margin: 0; pointer-events: none; box-shadow: var(--shadow-lift); transform: rotate(-1.5deg); transition: transform var(--dur); }
+.card.ghost.out { transform: rotate(0deg) scale(1.04); }
+/* A card dragged over the finalists shows on top of them, faded: dropping puts it in. */
+.card.drop-ghost { position: fixed; z-index: 50; margin: 0; pointer-events: none; transform-origin: 0 0; opacity: 0.65; box-shadow: var(--ring-sel), var(--shadow-lift); animation: drop-ghost-in var(--dur) var(--ease); }
+@keyframes drop-ghost-in { from { opacity: 1; } }
+.putback { padding: 1px 6px; font-size: var(--fs-small); }
+#drop-hint { position: absolute; left: 10px; right: 10px; top: 10px; height: 64px; z-index: 4; display: grid; place-items: center; color: var(--ink-2); background: var(--panel); backdrop-filter: blur(var(--panel-blur)); border: 1.5px dashed var(--ink-3); border-radius: calc(var(--r-card) + 4px); pointer-events: none; animation: point-in 0.2s var(--ease) both; }
+
+/* Numbers as lines, with the cards placed on them. */
+#fin-lines { display: grid; gap: 2px; margin-top: 12px; }
+#fin-lines:empty { display: none; }
+.nline { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 8px; height: 58px; }
+.nl-label { color: var(--ink-2); font: var(--label-size)/1.3 var(--font-label); text-transform: var(--label-case); letter-spacing: var(--label-tracking); overflow: hidden; text-overflow: ellipsis; }
+.nl-track { position: relative; height: 2px; margin: 0 26px; background: var(--line); border-radius: 2px; }
+.nl-dot { position: absolute; top: 50%; padding: 0; border: 0; background: none; width: 0; height: 0; }
+.nl-thumb { position: absolute; left: -13px; top: -13px; width: 26px; height: 26px; border-radius: 50%; background: var(--plate) center / cover no-repeat; border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--line); display: grid; place-items: center; font-size: 10px; color: var(--ink-2); transition: box-shadow var(--dur), transform var(--dur); }
+.nl-dot:hover .nl-thumb { transform: scale(1.12); }
+.nl-dot.selected .nl-thumb { box-shadow: var(--ring-sel); }
+.nl-dot.pointed .nl-thumb { box-shadow: var(--ring-agent); }
+.nl-val { position: absolute; top: -31px; left: 0; transform: translateX(-50%); white-space: nowrap; font: var(--fs-small)/1.2 var(--font-num); font-variant-numeric: tabular-nums; color: var(--ink); max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+.nl-dot.under .nl-val { top: 17px; }
+
+/* ---------- controls on the stage ---------- */
+#dock, #zoom, #composer { position: absolute; z-index: 6; display: flex; align-items: center; background: var(--panel); backdrop-filter: blur(var(--panel-blur)); border: 1px solid var(--line); box-shadow: var(--shadow-lift); }
+#dock { left: 50%; bottom: 12px; transform: translateX(-50%); gap: 4px; padding: 4px; border-radius: calc(var(--r-ctl) + 5px); white-space: nowrap; }
+#dock button { border-color: transparent; background: transparent; }
+#dock button:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+#dock #compare { background: var(--ink); color: var(--bg); }
+#dock .sep, #zoom .sep { width: 1px; height: 18px; background: var(--line); margin: 0 2px; }
+#zoom { right: 12px; bottom: 12px; padding: 2px; border-radius: var(--r-ctl); font-size: var(--fs-small); font-variant-numeric: tabular-nums; }
+#zoom button { padding: 4px 8px; min-width: 26px; }
+#composer { left: 50%; bottom: 62px; transform: translateX(-50%); z-index: 7; gap: 8px; padding: 6px 6px 6px 8px; border-radius: calc(var(--r-ctl) + 5px); width: min(460px, calc(100% - 24px)); white-space: nowrap; }
+#stage:has(#composer:not([hidden])) #pointer-note { display: none; }
+#composer-input { flex: 1; min-width: 0; font: inherit; color: var(--ink); padding: 6px 8px; border: 0; background: transparent; outline: none; }
+@media (max-width: 520px) { #zoom { display: none; } #status { display: none; } }
+
+/* ---------- dev panel ---------- */
+#dev { position: absolute; z-index: 20; top: 42px; right: 0; bottom: 0; width: min(320px, 100%); padding: 10px 12px; overflow: auto; display: grid; gap: 6px; align-content: start; background: var(--surface); border-left: 1px solid var(--line); box-shadow: var(--shadow-lift); font-size: 12px; }
+.dev-row { display: flex; align-items: center; }
+.dev-label { margin-top: 8px; color: var(--ink-2); font-size: 11px; }
+#dev-styles { display: grid; gap: 4px; }
+#dev-styles button { display: grid; text-align: left; gap: 1px; }
+#dev-styles span { color: var(--ink-2); font-size: 11px; }
+#dev-themes { display: flex; gap: 4px; }
+#dev button.on { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+#dev pre { margin: 0; max-height: 180px; overflow: auto; white-space: pre-wrap; word-break: break-word; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px; font-size: 11px; }
+
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }

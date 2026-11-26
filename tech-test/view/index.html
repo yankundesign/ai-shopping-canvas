@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shopping canvas</title>
+<style>/*CSS*/</style>
+</head>
+<body>
+<header id="bar">
+  <strong id="title">Shopping canvas</strong>
+  <span id="scope" class="muted"></span>
+  <button id="add-detail" type="button">+ Detail</button>
+  <button id="add-card" type="button">+ Empty card</button>
+  <button id="trash" type="button" disabled>Delete</button>
+  <button id="undo" type="button" hidden>Undo</button>
+  <span id="waiting" hidden><span id="waiting-text" class="muted"></span> <button id="send-now" type="button">Send now</button></span>
+  <span id="status" class="muted" aria-live="polite"></span>
+  <span class="spacer"></span>
+  <button id="expand" type="button" hidden>Open beside chat</button>
+  <button id="collapse" type="button" hidden>Back to chat</button>
+  <button id="test-toggle" type="button" class="quiet">Test</button>
+</header>
+<div id="form" hidden>
+  <input id="form-input" autocomplete="off" maxlength="80">
+  <span id="form-scope" class="muted"></span>
+  <button id="form-submit" type="button">Leave it blank</button>
+</div>
+<section id="test" hidden>
+  <div id="test-host" class="muted"></div>
+  <label>Blanks <select id="set-blanks"><option value="wait">wait for my next message</option><option value="send">send a message now</option></select></label>
+  <label>Selection reaches the agent <select id="set-selection"><option value="context">in context and read_canvas</option><option value="tool">read_canvas only</option></select></label>
+  <div class="muted">Last context sent to the agent:</div>
+  <pre id="test-context"></pre>
+  <div class="muted">View log:</div>
+  <pre id="test-log"></pre>
+</section>
+<main id="grid"></main>
+<p id="empty" class="muted" hidden>No cards yet.</p>
+<script>/*JS*/</script>
+</body>
+</html>

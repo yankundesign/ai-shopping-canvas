@@ -1,0 +1,9 @@
+node_modules/
+dist/
+# Canvas state, the access token in the canvas URL, and server logs
+data/
+.DS_Store
+# Local tool settings, with paths on this machine
+.claude/
+# Other people's screenshots and videos, kept for internal reference only
+research_notes/moodboard/

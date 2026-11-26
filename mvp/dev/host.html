@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light">
+<title>Dev host: shopping canvas</title>
+<style>
+  body { margin: 0; font: 13px/1.4 -apple-system, system-ui, sans-serif; display: flex; height: 100vh; color: #222; background: #fff; }
+  #frame { flex: 1; border-right: 1px solid #ddd; min-width: 0; }
+  #frame iframe { width: 100%; height: 100%; border: 0; display: block; }
+  aside { width: 320px; padding: 12px; overflow: auto; display: grid; gap: 8px; align-content: start; }
+  button { font: inherit; padding: 5px 8px; text-align: left; }
+  pre { white-space: pre-wrap; background: #f5f5f7; padding: 6px; margin: 0; max-height: 220px; overflow: auto; font-size: 11px; }
+  .pending { border: 1px solid #d98b00; padding: 6px; border-radius: 6px; }
+  h3 { margin: 8px 0 0; font-size: 12px; color: #666; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<div id="frame"></div>
+<aside>
+  <strong>Dev host (fake agent)</strong>
+  <a id="to-styles" href="#">Style variants, side by side</a>
+  <button id="open">Agent: open a canvas with sample cards</button>
+  <button id="fill">Agent: answer the waiting requests</button>
+  <button id="point">Agent: point at two cards, with reasons</button>
+  <button id="point-far">Agent: point at the last card</button>
+  <button id="read">Agent: read the canvas</button>
+  <label><input type="checkbox" id="dark"> Dark theme</label>
+  <label><input type="checkbox" id="auto-allow"> Allow canvas messages without asking</label>
+  <h3>Messages from the canvas, waiting for approval</h3>
+  <div id="pending"></div>
+  <h3>Model context (latest)</h3>
+  <pre id="context"></pre>
+  <h3>Agent's read</h3>
+  <pre id="agent-out"></pre>
+  <h3>Log</h3>
+  <pre id="log"></pre>
+</aside>
+<script>/*JS*/</script>
+</body>
+</html>
