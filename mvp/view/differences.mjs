@@ -1,7 +1,7 @@
 // What sets the finalists apart, worked out by the canvas from the person's
 // details. No intelligence here, only arithmetic and string comparison:
-//   shared: one quiet line for what they all have in common
-//   lines:  each number (price, weight) as a line with the cards placed on it
+//   shared: one quiet line for what they all have in common (sharedNames: the details it covers)
+//   lines:  each number (price, weight), with every card's value on it
 //   tags:   a word on each card for what sets it apart ("Cheapest", "Lightest")
 
 const UNITS = { g: ["g", 1], gram: ["g", 1], grams: ["g", 1], kg: ["g", 1000], oz: ["oz", 1], ounce: ["oz", 1], ounces: ["oz", 1], lb: ["oz", 16], lbs: ["oz", 16], mm: ["mm", 1], cm: ["mm", 10], in: ["in", 1], inch: ["in", 1], inches: ["in", 1], '"': ["in", 1] };
@@ -28,16 +28,17 @@ const yesNo = (s) => (/^(yes|true)\b/i.test(String(s).trim()) ? "yes" : /^(no|no
 const bare = (name) => String(name).replace(/\?+$/, "").trim();
 const count = (n) => (n === 2 ? "Both" : `All ${["", "", "", "three", "four", "five", "six"][n] || n}`);
 
-function numberLine(label, entries) {
+function numberLine(label, entries, name = label) {
   // entries: [{ id, n, text }]
   const ns = entries.map((e) => e.n);
   const min = Math.min(...ns);
   const max = Math.max(...ns);
   return {
     label,
+    name,
     min,
     max,
-    points: entries.map((e) => ({ id: e.id, text: e.text, t: max === min ? 0.5 : (e.n - min) / (max - min) })).sort((a, b) => a.t - b.t),
+    points: entries.map((e) => ({ id: e.id, text: e.text, n: e.n, t: max === min ? 0.5 : (e.n - min) / (max - min) })).sort((a, b) => a.t - b.t),
   };
 }
 
@@ -48,7 +49,7 @@ function only(entries, pick) {
 }
 
 export function differences(cards, detailOrder, money) {
-  const out = { shared: [], lines: [], consumed: [], tags: Object.fromEntries(cards.map((c) => [c.id, []])) };
+  const out = { shared: [], sharedNames: [], lines: [], consumed: [], tags: Object.fromEntries(cards.map((c) => [c.id, []])) };
   if (cards.length < 2) return out;
 
   // Price
@@ -76,10 +77,10 @@ export function differences(cards, detailOrder, money) {
     if (nums.every((e) => e.p) && new Set(nums.map((e) => e.p.unit)).size === 1) {
       const entries = nums.map((e) => ({ id: e.id, n: e.p.n, text: e.text }));
       if (new Set(entries.map((e) => e.n)).size === 1) {
-        if (complete) out.shared.push(`${bare(name)}: ${entries[0].text}`), out.consumed.push(name);
+        if (complete) out.shared.push(`${bare(name)}: ${entries[0].text}`), out.consumed.push(name), out.sharedNames.push(name);
         continue;
       }
-      out.lines.push(numberLine(bare(name), entries));
+      out.lines.push(numberLine(bare(name), entries, name));
       out.consumed.push(name);
       if (complete && /weigh/i.test(name)) {
         const lightest = only(entries, Math.min);
@@ -91,9 +92,10 @@ export function differences(cards, detailOrder, money) {
     if (!complete) continue;
     const yn = answered.map((e) => yesNo(e.d.value));
     const values = answered.map((e) => norm(e.d.value));
-    if (yn.every((v) => v === "yes")) out.shared.push(bare(name).toLowerCase()), out.consumed.push(name);
-    else if (yn.every((v) => v === "no")) out.shared.push(`no ${bare(name).toLowerCase()}`), out.consumed.push(name);
-    else if (values.every((v) => v === values[0])) out.shared.push(`${bare(name)}: ${answered[0].d.value}`), out.consumed.push(name);
+    const same = () => (out.consumed.push(name), out.sharedNames.push(name));
+    if (yn.every((v) => v === "yes")) out.shared.push(bare(name).toLowerCase()), same();
+    else if (yn.every((v) => v === "no")) out.shared.push(`no ${bare(name).toLowerCase()}`), same();
+    else if (values.every((v) => v === values[0])) out.shared.push(`${bare(name)}: ${answered[0].d.value}`), same();
     else if (cards.length >= 3) {
       // The odd one out: one card differs and the rest agree.
       const keys = yn.every(Boolean) ? yn : values;
@@ -109,7 +111,8 @@ export function differences(cards, detailOrder, money) {
 
   if (out.shared.length) {
     const s = out.shared.join(" · ");
-    out.sharedText = `${count(cards.length)}: ${s}`;
+    out.sharedLabel = count(cards.length);
+    out.sharedText = `${out.sharedLabel}: ${s}`;
   }
   return out;
 }

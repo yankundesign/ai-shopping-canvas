@@ -78,6 +78,15 @@ function addDetailName(canvas, name, by) {
   return n;
 }
 
+// Finalists sit side by side in the compare table; more than four won't fit beside a chat.
+const MAX_FINALISTS = 4;
+// A spec the agent added when the person asked to compare: shown in the compare table only.
+const finalistsOnly = (canvas, name) => canvas.detailScope?.[name] === "finalists";
+const specWaiting = (canvas) => (canvas.specRequest && !canvas.specRequest.answeredAt ? canvas.specRequest : null);
+// The person's ask stays an invitation for a few minutes, so the agent can fill in more than one call.
+const specInvitation = (canvas) => (canvas.specRequest && (!canvas.specRequest.answeredAt || Date.now() - canvas.specRequest.answeredAt < 5 * 60e3) ? canvas.specRequest : null);
+const MAX_NEW_SPECS = 6;
+
 function finalistIds(canvas) {
   canvas.finalists ??= [];
   canvas.finalists = canvas.finalists.filter((id) => canvas.cards.some((c) => c.id === id && !c.deleted && c.kind === "product"));
@@ -103,6 +112,8 @@ function requestsText(canvas) {
   const lines = [];
   for (const [name, ids] of details) lines.push(`- Detail "${name}" for ${idList(ids)}: answer with fill_details`);
   for (const b of cards) lines.push(`- One more product, hint "${b.hint}"${b.like?.length ? `, like ${idList(b.like)}` : ""}: answer with add_cards and fills_request "${b.id}"`);
+  const specs = specWaiting(canvas);
+  if (specs) lines.push(`- Specs to compare the finalists ${idList(specs.ids)}: pick 4 to 6 specs that would decide between them and aren't on the canvas yet, then give every finalist a value with fill_details, each with its source. New spec names are allowed for this; they show only in the compare table.`);
   return lines;
 }
 
@@ -137,7 +148,9 @@ function canvasSummary(canvas) {
   ];
   const requests = requestsText(canvas);
   lines.push(requests.length ? "Requests waiting for you:\n" + requests.join("\n") : "No requests waiting.");
-  lines.push(`The person's details: ${canvas.detailOrder.length ? canvas.detailOrder.join(", ") : "none"}. Don't add others.`);
+  const specs = canvas.detailOrder.filter((d) => finalistsOnly(canvas, d));
+  const details = canvas.detailOrder.filter((d) => !finalistsOnly(canvas, d));
+  lines.push(`The person's details: ${details.length ? details.join(", ") : "none"}.${specs.length ? ` Specs in the compare table, for the finalists: ${specs.join(", ")}.` : ""} Don't add others.`);
   lines.push("Cards:\n" + live.map(cardLine).join("\n"));
   if (trashed.length) lines.push("In the trash (the person said 'not these'): " + trashed.map((c) => `${c.id} ${c.name}`).join("; "));
   return lines.join("\n");
@@ -150,6 +163,8 @@ function viewState(canvas, base) {
     title: canvas.title,
     version: canvas.version,
     detailOrder: canvas.detailOrder,
+    detailScope: canvas.detailScope || {},
+    specRequest: canvas.specRequest ? { ids: canvas.specRequest.ids, at: canvas.specRequest.at, answered: !!canvas.specRequest.answeredAt } : null,
     finalists: finalistIds(canvas),
     pointer: canvas.pointer,
     style: canvas.style || DEFAULT_STYLE,
@@ -340,6 +355,7 @@ export const INSTRUCTIONS = `Shopping canvas: product cards beside the chat, sha
 - Start the details from the person's own words, with the first cards only. "Waterproof hiking shoes under $150" gives a "Waterproof" detail on every card, with a source. After that the person adds details and you fill them.
 - The canvas puts what the person sees into your context: the selection (or the cards in view when nothing is selected), their finalists, and the requests waiting. If you can't see it, call read_canvas.
 - Requests wait for the person's next message. Whatever they say next, also answer every waiting request in the same reply. A detail: one value per listed card with fill_details, each with its source, or couldnt_find when you looked and found nothing. One more product: find one that fits the hint and resembles the cards it was placed with, then add_cards with fills_request.
+- When the person asks for specs to compare their finalists, that is your invitation: pick 4 to 6 specs that would decide between them (weight, fit, warranty, returns), skip ones already on the canvas, and fill every finalist with fill_details and a source. Those rows show only in the compare table.
 - Finalists are the cards the person pulled up to compare. Treat them as the strongest signal: "Of your three finalists, only the Targhee is under $150."
 - Comparison questions and opinions get a short answer in the chat, naming the cards, with point_at_cards so they light up. Don't write the comparison onto the cards.
 - You never move, remove or reorder cards, and never change the person's details.
@@ -453,7 +469,7 @@ function buildServer(base) {
     {
       title: "Fill in details on cards",
       description:
-        "Answer the person's detail requests: one value per card, each with its source. Use couldnt_find when you looked and found nothing; that is different from leaving it empty. Only details already on the canvas can be filled. You can't add a new one: the details are the person's, so say other facts in the chat.",
+        "Answer the person's detail requests: one value per card, each with its source. Use couldnt_find when you looked and found nothing; that is different from leaving it empty. Only details already on the canvas can be filled. You can't add a new one: the details are the person's, so say other facts in the chat. The one exception: when the person asked for specs to compare their finalists, give those finalists new spec names (up to 6).",
       inputSchema: {
         canvas_id: z.string(),
         values: z
@@ -477,6 +493,9 @@ function buildServer(base) {
       S.logEvent(canvas, "agent_tool", { tool: "fill_details", values: values.length });
       const problems = [];
       const uninvited = new Set();
+      const tooMany = new Set();
+      const invite = specInvitation(canvas);
+      let specsTouched = false;
       let n = 0;
       for (const v of values) {
         const card = canvas.cards.find((c) => c.id === v.card_id && !c.deleted && c.kind === "product");
@@ -484,11 +503,25 @@ function buildServer(base) {
           problems.push(`${v.card_id}: no such card`);
           continue;
         }
-        const key = findDetail(canvas, v.detail);
+        let key = findDetail(canvas, v.detail);
+        if (!key && invite?.ids.includes(card.id)) {
+          // The person asked for specs to compare: the agent may name new ones, for the finalists only.
+          invite.added ??= [];
+          if (invite.added.length >= MAX_NEW_SPECS) {
+            tooMany.add(clean(v.detail, 60));
+            continue;
+          }
+          key = addDetailName(canvas, v.detail, "agent");
+          canvas.detailScope ??= {};
+          canvas.detailScope[key] = "finalists";
+          invite.added.push(key);
+          S.logEvent(canvas, "spec_added", { detail: key });
+        }
         if (!key) {
           uninvited.add(clean(v.detail, 60));
           continue;
         }
+        if (invite?.ids.includes(card.id)) specsTouched = true;
         const prev = card.details[key];
         if (prev?.state === "waiting") {
           S.logEvent(canvas, "request_filled", { kind: "detail", detail: key, card: card.id, ms: Date.now() - (prev.since || Date.now()) });
@@ -500,6 +533,12 @@ function buildServer(base) {
         }
         n++;
       }
+      const waitingSpecs = specWaiting(canvas);
+      if (waitingSpecs && specsTouched) {
+        waitingSpecs.answeredAt = Date.now();
+        S.logEvent(canvas, "request_filled", { kind: "specs", specs: waitingSpecs.added || [], ms: waitingSpecs.answeredAt - waitingSpecs.at });
+      }
+      if (tooMany.size) problems.push(`Not added: ${[...tooMany].join(", ")}. Up to ${MAX_NEW_SPECS} new specs per request.`);
       if (uninvited.size) {
         S.logEvent(canvas, "uninvited_detail", { details: [...uninvited] });
         problems.push(`Not written: ${[...uninvited].join(", ")}. The person hasn't asked for ${uninvited.size === 1 ? "that detail" : "those details"}, and the details are theirs. Say it briefly in the chat instead; they can add it as a detail on the canvas if they want it on the cards.`);
@@ -603,7 +642,14 @@ function buildServer(base) {
   );
 
   viewTool("canvas_finalists", "The person's finalists, in their order", { canvas_id: z.string(), card_ids: Ids, how: z.enum(["compare", "drag", "remove", "clear", "undo"]).optional() }, (canvas, { card_ids, how }) => {
-    canvas.finalists = [...new Set(card_ids)];
+    const before = finalistIds(canvas);
+    canvas.finalists = [...new Set(card_ids)].slice(0, MAX_FINALISTS);
+    // A card joining the compare table asks for the specs the others already have.
+    for (const id of finalistIds(canvas)) {
+      const card = canvas.cards.find((c) => c.id === id);
+      if (before.includes(id) || !card) continue;
+      for (const name of canvas.detailOrder) if (finalistsOnly(canvas, name) && !card.details[name]) card.details[name] = { state: "waiting", since: Date.now() };
+    }
     S.logEvent(canvas, "finalists_changed", { finalists: finalistIds(canvas), how: how || null });
     S.touch(canvas);
     return { finalists: canvas.finalists, version: canvas.version };
@@ -616,6 +662,7 @@ function buildServer(base) {
     (canvas, { name, card_ids, scope }) => {
       const key = addDetailName(canvas, name, "person");
       canvas.detailBy[key] = "person"; // asking for an existing detail makes it theirs
+      if (canvas.detailScope) delete canvas.detailScope[key]; // and puts it on every card
       const ids = [];
       for (const card of canvas.cards) {
         if (!card_ids.includes(card.id) || card.deleted || card.kind !== "product") continue;
@@ -641,6 +688,26 @@ function buildServer(base) {
       return { card_id: card.id, version: canvas.version };
     },
   );
+
+  viewTool("canvas_request_specs", "The person asked for specs to compare their finalists", { canvas_id: z.string(), card_ids: Ids.min(2) }, (canvas, { card_ids }) => {
+    const ids = card_ids.filter((id) => finalistIds(canvas).includes(id));
+    canvas.specRequest = { ids, at: Date.now(), added: [] };
+    S.logEvent(canvas, "request_created", { kind: "specs", cards: ids });
+    S.touch(canvas);
+    return { card_ids: ids, version: canvas.version };
+  });
+
+  viewTool("canvas_remove_spec", "The person removed a row from the compare table", { canvas_id: z.string(), name: z.string().min(1).max(60) }, (canvas, { name }) => {
+    const key = findDetail(canvas, name);
+    if (!key || !finalistsOnly(canvas, key)) return { removed: false, version: canvas.version };
+    canvas.detailOrder = canvas.detailOrder.filter((d) => d !== key);
+    delete canvas.detailScope[key];
+    if (canvas.detailBy) delete canvas.detailBy[key];
+    for (const c of canvas.cards) if (c.details) delete c.details[key];
+    S.logEvent(canvas, "spec_removed", { detail: key });
+    S.touch(canvas);
+    return { removed: true, version: canvas.version };
+  });
 
   viewTool("canvas_delete", "The person trashed cards", { canvas_id: z.string(), card_ids: Ids }, (canvas, { card_ids }) => {
     for (const c of canvas.cards) if (card_ids.includes(c.id)) c.deleted = true;

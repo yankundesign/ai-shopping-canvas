@@ -90,11 +90,9 @@
 :root[data-style="trace"] .card.fin.selected { box-shadow: var(--ring-sel); }
 :root[data-style="trace"] .card.fin.pointed { box-shadow: var(--ring-agent); }
 :root[data-style="trace"] .card.fin::before { content: attr(data-n); position: absolute; right: 9px; top: 8px; z-index: 1; width: 17px; height: 17px; border-radius: 50%; display: grid; place-items: center; background: var(--id); color: #fff; font: 600 10px/1 var(--font-num); }
-:root[data-style="trace"] .nl-track { height: 3px; background: color-mix(in srgb, var(--ink) 12%, transparent); }
-:root[data-style="trace"] .nl-thumb { border-radius: 8px; outline: 2px solid var(--id); outline-offset: 0; border-color: var(--surface); box-shadow: none; }
-:root[data-style="trace"] .nl-dot::after { content: attr(data-n); position: absolute; left: 7px; top: -19px; width: 13px; height: 13px; border-radius: 50%; display: grid; place-items: center; background: var(--id); color: #fff; font: 600 8px/1 var(--font-num); }
-:root[data-style="trace"] .nl-dot.selected .nl-thumb { box-shadow: 0 0 0 4px var(--surface), 0 0 0 5.5px var(--sel); }
-:root[data-style="trace"] .nl-dot.pointed .nl-thumb { box-shadow: 0 0 0 4px var(--surface), 0 0 0 5.5px var(--agent), 0 0 0 9px var(--agent-soft); }
+:root[data-style="trace"] .ft-cell .val { font-variant-numeric: tabular-nums; }
+:root[data-style="trace"] .ft-cell.arrived .val { animation: trace-bloom 1.4s var(--ease) both; border-radius: 5px; }
+:root[data-style="trace"] .ft-label, :root[data-style="trace"] .ft-cell { border-top-style: dashed; }
 
 /* Pointing: a measuring label in the agent's blue, in mono. */
 :root[data-style="trace"] .point-chip { left: 8px; bottom: calc(100% + 6px); border-radius: 7px; padding: 2px 8px; font: 500 10.5px/1.5 var(--font-num); }

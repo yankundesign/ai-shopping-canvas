@@ -23,16 +23,19 @@
   <div id="marquee" hidden></div>
   <p id="empty" class="muted" hidden>No cards yet.</p>
 
-  <!-- The finalists: cards the person pulled up to compare. Also their shortlist. -->
+  <!-- The finalists: cards the person pulled up to compare, side by side, with the
+       compare table lined up under them. Also their shortlist. -->
   <section id="finalists" hidden aria-label="Finalists">
     <div id="fin-head">
       <button id="fin-toggle" type="button" class="quiet" aria-expanded="true"><span id="fin-title">Finalists</span></button>
-      <span id="fin-shared"></span>
+      <span class="spacer"></span>
+      <button id="fin-specs" type="button" title="Ask the agent for the specs that would decide between your finalists" hidden>Add specs</button>
+      <button id="fin-expand" type="button" class="quiet" title="Give the comparison the whole canvas">Expand</button>
       <button id="fin-clear" type="button" class="quiet" title="Put every finalist back on the canvas">Clear</button>
     </div>
     <div id="fin-body">
       <div id="fin-row"></div>
-      <div id="fin-lines"></div>
+      <div id="fin-table" role="table" aria-label="Compare"></div>
     </div>
   </section>
   <div id="drop-hint" hidden>Drop here to compare</div>

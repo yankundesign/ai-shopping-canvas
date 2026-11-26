@@ -50,16 +50,28 @@ $("#open").onclick = async () => {
   await mount(open);
 };
 
+// Made-up specs the fake agent gives when asked to compare the finalists, one value per finalist.
+const SPECS = {
+  Weight: ["370 g", "485 g", "450 g", "410 g"],
+  "Heel-to-toe drop": ["11 mm", "13 mm", "11 mm", "10 mm"],
+  "Wide sizes": ["No", "Yes, 2E", "Yes, wide", "No"],
+  Returns: ["60 days", "30 days", "30 days, unworn", "45 days"],
+};
+
 $("#fill").onclick = async () => {
   const canvas = await getCanvas(canvasId);
   const values = [];
   const requests = [];
+  const specs = canvas.specRequest && !canvas.specRequest.answered ? canvas.specRequest : null;
   canvas.cards.filter((c) => !c.deleted).forEach((c, i) => {
     if (c.kind === "request") requests.push(c);
     for (const [detail, d] of Object.entries(c.details || {})) {
-      if (d.state === "waiting") values.push(i % 4 === 3 ? { card_id: c.id, detail, couldnt_find: true } : { card_id: c.id, detail, value: i % 2 ? "Standard only" : "2E available", source: "https://example.com/spec" });
+      if (d.state !== "waiting") continue;
+      if (SPECS[detail]) values.push({ card_id: c.id, detail, value: SPECS[detail][i % 4], source: "https://example.com/spec" });
+      else values.push(i % 4 === 3 ? { card_id: c.id, detail, couldnt_find: true } : { card_id: c.id, detail, value: i % 2 ? "Standard only" : "2E available", source: "https://example.com/spec" });
     }
   });
+  if (specs) specs.ids.forEach((id, k) => Object.entries(SPECS).forEach(([detail, v]) => values.push({ card_id: id, detail, value: v[k % 4], source: "https://example.com/spec" })));
   if (values.length) await agent("fill_details", { values });
   for (const r of requests) {
     await agent("add_cards", { cards: [{ link: "https://www.keenfootwear.com/products/mens-targhee-iv-waterproof-triple-black", name: "KEEN Targhee IV Waterproof, Triple Black", price: 135, store: "KEEN", fills_request: r.id }] });

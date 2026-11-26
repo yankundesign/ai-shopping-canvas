@@ -201,6 +201,11 @@ function waitingRequests() {
     const like = Array.isArray(c.like) && c.like.length ? `, like ${c.like.join(" and ")}` : "";
     items.push({ key: `c:${c.id}`, text: `find one more product for the empty card ${c.id} ("${c.hint}")${like}`, context: `one more product, hint "${c.hint}"${like} (add_cards with fills_request "${c.id}")` });
   }
+  const specs = state?.specRequest;
+  if (specs && !specs.answered) {
+    const ids = specs.ids.join(", ");
+    items.push({ key: `s:${specs.at}`, text: `add the specs that would decide between my finalists ${ids}`, context: `specs to compare the finalists ${ids}: pick 4 to 6 that would decide between them and fill every finalist (fill_details; new spec names are allowed for this)` });
+  }
   return items;
 }
 
@@ -215,6 +220,8 @@ function contextText() {
     lines.push(`Nothing selected. Cards in view (${view.length}): ${view.map(name).join("; ")}.`);
   }
   lines.push(fin.length ? `Finalists, the person's shortlist (${fin.length}): ${fin.map(name).join("; ")}. Speak about them first.` : "No finalists yet.");
+  const specs = (state.detailOrder || []).filter((d) => state.detailScope?.[d] === "finalists");
+  if (specs.length) lines.push(`Specs in the compare table, for the finalists: ${specs.join(", ")}.`);
   const waiting = waitingRequests();
   lines.push(waiting.length ? `Requests waiting for you, to answer in your next reply: ${waiting.map((w) => w.context).join("; ")}.` : "No requests waiting.");
   lines.push("Answer comparisons briefly in the chat and call point_at_cards on the cards you name. Don't add details the person didn't ask for.");
@@ -339,9 +346,53 @@ function setFinalists(ids, how, moves = []) {
   );
 }
 
+// Side by side, more than four won't fit beside a chat. Matches MAX_FINALISTS on the server.
+const MAX_FINALISTS = 4;
+
 function compare(ids) {
-  const add = ids.filter((id) => isProduct(byId(id)) && !finalistIds().includes(id));
-  if (add.length) setFinalists([...finalistIds(), ...add], "compare");
+  const fin = finalistIds();
+  const add = ids.filter((id) => isProduct(byId(id)) && !fin.includes(id));
+  const room = MAX_FINALISTS - fin.length;
+  if (add.length > room) setStatus(room > 0 ? `Up to ${MAX_FINALISTS} finalists side by side, so ${room} went in.` : `Up to ${MAX_FINALISTS} finalists side by side. Put one back first.`, "fin", 6000);
+  if (add.length && room > 0) setFinalists([...fin, ...add.slice(0, room)], "compare");
+}
+
+/** Add specs: the person asks the agent for the specs that would decide between the finalists. */
+async function requestSpecs() {
+  const ids = finalistIds();
+  if (ids.length < 2) return;
+  try {
+    await call("canvas_request_specs", { card_ids: ids });
+    logEvent("request_waiting", { request: "specs", cards: ids });
+    await poll();
+    leftFor();
+  } catch (e) {
+    setStatus(`Couldn't ask for specs: ${e.message}`, "request", 6000);
+  }
+}
+
+/** A row the agent added to the compare table goes, for every finalist. */
+function removeSpec(name) {
+  optimistic(
+    (s) => {
+      s.detailOrder = (s.detailOrder || []).filter((d) => d !== name);
+      if (s.detailScope) delete s.detailScope[name];
+      for (const c of s.cards) if (c.details) delete c.details[name];
+    },
+    async () => (await call("canvas_remove_spec", { name })).version,
+    "Couldn't remove the row",
+  );
+}
+
+/** Expanded, the comparison takes the whole canvas; Done or Esc gives the canvas back. */
+function setFull(on) {
+  finPanel.classList.toggle("full", on);
+  if (on) {
+    finPanel.classList.remove("closed");
+    $("#fin-toggle").setAttribute("aria-expanded", "true");
+  }
+  $("#fin-expand").textContent = on ? "Done" : "Expand";
+  applyCamera();
 }
 
 /** Back to the canvas: where the person dropped it, or where it was if that's still free. */
@@ -645,9 +696,7 @@ function detailHtml(name, d, arrived) {
   if (!d) return `<div class="detail missing"><dt>${esc(name)}</dt><dd><span class="val">—</span></dd></div>`;
   if (d.state === "waiting") return `<div class="detail waiting"><dt>${esc(name)}</dt><dd><span class="wait">waiting for ${esc(agent)}</span></dd></div>`;
   if (d.state === "couldnt_find") return `<div class="detail none${arrived ? " arrived" : ""}"><dt>${esc(name)}</dt><dd><span class="cant">Couldn't find</span></dd></div>`;
-  const host = d.source ? urlHost(d.source) : null;
-  const src = !d.source ? "" : host ? `<a class="src" href="#" data-link="${esc(d.source)}" title="Source: ${esc(d.source)}">${esc(host)}</a>` : `<span class="src" title="Source: ${esc(d.source)}">source</span>`;
-  return `<div class="detail answered${arrived ? " arrived" : ""}"><dt>${esc(name)}</dt><dd><span class="val" title="${esc(d.value)}">${esc(d.value)}</span>${src}</dd></div>`;
+  return `<div class="detail answered${arrived ? " arrived" : ""}"><dt>${esc(name)}</dt><dd><span class="val" title="${esc(d.value)}">${esc(d.value)}</span>${srcHtml(d)}</dd></div>`;
 }
 
 function priceHtml(p) {
@@ -683,7 +732,8 @@ function cardHtml(c, fin, arrived) {
     c.photo?.from === "catalog"
       ? `<span class="credit" title="Photo from ${seller}, matched by name">Photo: ${c.photo.listing ? `<a href="#" data-link="${esc(c.photo.listing)}">${seller}</a>` : seller}</span>`
       : "";
-  const names = (state.detailOrder || []).filter((n) => !(fin && fin.hide.includes(n)));
+  // A finalist's details are in the compare table under it. Specs added for the comparison stay there.
+  const names = fin ? [] : (state.detailOrder || []).filter((n) => state.detailScope?.[n] !== "finalists");
   const details = names.map((n) => detailHtml(n, c.details?.[n], arrived?.has(n))).join("");
   return `
     <div class="photo">${photo}${tags || flag ? `<div class="badges">${tags}${flag}</div>` : ""}${credit}</div>
@@ -696,25 +746,49 @@ function cardHtml(c, fin, arrived) {
     </div>`;
 }
 
-function linesHtml(diff) {
-  return diff.lines
-    .map((line) => {
-      let last = -1;
-      let flip = false;
-      const dots = line.points
-        .map((p) => {
-          // Values that sit close together take turns above and below the line.
-          flip = p.t - last < 0.3 ? !flip : false;
-          last = p.t;
-          const c = byId(p.id);
-          const url = photoUrl(c);
-          return `<button type="button" class="nl-dot${flip ? " under" : ""}" data-dot="${esc(p.id)}" data-n="${finalistIds().indexOf(p.id) + 1}" style="left:${(p.t * 100).toFixed(1)}%" title="${esc(c.name)}">
-            <span class="nl-thumb"${url ? ` style="background-image:url('${esc(url)}')"` : ""}>${url ? "" : esc((c.name || "?")[0])}</span><span class="nl-val">${esc(p.text)}</span></button>`;
-        })
-        .join("");
-      return `<div class="nline"><span class="nl-label">${esc(line.label)}</span><div class="nl-track">${dots}</div></div>`;
-    })
-    .join("");
+function srcHtml(d) {
+  if (!d.source) return "";
+  const host = urlHost(d.source);
+  return host ? `<a class="src" href="#" data-link="${esc(d.source)}" title="Source: ${esc(d.source)}">${esc(host)}</a>` : `<span class="src" title="Source: ${esc(d.source)}">source</span>`;
+}
+
+let tableStates = new Map(); // "detail|card" -> state, so an answer that just arrived shows it
+let lastTable = "";
+
+/**
+ * The compare table: one row per detail or spec, one cell per finalist, lined up under the
+ * cards. What all of them share folds into one line at the end.
+ */
+function tableHtml(fin, diff) {
+  if (!fin.length) return "";
+  const cards = fin.map(byId);
+  const next = new Map();
+  const names = (state.detailOrder || []).filter((n) => !diff.sharedNames?.includes(n) && cards.some((c) => c.details?.[n]));
+  const rows = names.map((name) => {
+    const cells = cards.map((c, i) => {
+      const d = c.details?.[name];
+      const key = `${name}|${c.id}`;
+      next.set(key, d?.state);
+      const arrived = tableStates.get(key) === "waiting" && d && d.state !== "waiting";
+      let inner;
+      if (!d) inner = `<span class="val none">—</span>`;
+      else if (d.state === "waiting") inner = `<span class="wait">waiting for ${esc(agent)}</span>`;
+      else if (d.state === "couldnt_find") inner = `<span class="cant">Couldn't find</span>`;
+      else inner = `<span class="val">${esc(d.value)}</span>${srcHtml(d)}`;
+      return `<div class="ft-cell${arrived ? " arrived" : ""}" role="cell" data-n="${i + 1}">${inner}</div>`;
+    });
+    const remove = state.detailScope?.[name] === "finalists" ? `<button class="ft-remove quiet" type="button" data-remove-spec="${esc(name)}" title="Remove this row" aria-label="Remove ${esc(name)}">×</button>` : "";
+    return `<div class="ft-label" role="rowheader" title="${esc(name)}"><span>${esc(name)}</span>${remove}</div>${cells.join("")}`;
+  });
+  const asking = state.specRequest && !state.specRequest.answered;
+  if (asking) {
+    const wait = `<span class="wait">waiting for ${esc(agent)}</span>`;
+    for (let r = 0; r < 3; r++) rows.push(`<div class="ft-label">${wait}</div>${cards.map((_, i) => `<div class="ft-cell" data-n="${i + 1}">${wait}</div>`).join("")}`);
+  }
+  if (diff.sharedText) rows.push(`<div class="ft-label" role="rowheader">${esc(diff.sharedLabel)}</div><div class="ft-cell ft-common" role="cell">${esc(diff.shared.join(" · "))}</div>`);
+  if (!rows.length && fin.length >= 2) rows.push(`<div class="ft-empty">Nothing to compare yet. Add specs and ${esc(agent)} fills them in for each finalist.</div>`);
+  tableStates = next;
+  return rows.join("");
 }
 
 function render() {
@@ -734,8 +808,8 @@ function render() {
   }
   for (const c of cards) {
     const inFin = fin.includes(c.id);
-    const ctx = inFin ? { tags: diff.tags[c.id] || [], hide: diff.consumed } : null;
-    const json = JSON.stringify([c.kind, c.name, c.link, c.store, c.price, c.photo, c.check, c.checkReason, c.details, c.hint, ctx, agent, state.detailOrder]);
+    const ctx = inFin ? { tags: diff.tags[c.id] || [] } : null;
+    const json = JSON.stringify([c.kind, c.name, c.link, c.store, c.price, c.photo, c.check, c.checkReason, c.details, c.hint, ctx, agent, state.detailOrder, state.detailScope]);
     let entry = els.get(c.id);
     if (!entry) {
       const el = document.createElement("article");
@@ -766,9 +840,15 @@ function render() {
     el.style.left = el.style.top = "";
   });
   finPanel.hidden = fin.length === 0;
+  if (!fin.length && finPanel.classList.contains("full")) setFull(false);
+  finPanel.style.setProperty("--fin-n", Math.max(fin.length, 1));
   $("#fin-title").textContent = `Finalists ${fin.length}`;
-  $("#fin-shared").textContent = diff.sharedText || "";
-  $("#fin-lines").innerHTML = linesHtml(diff);
+  const table = tableHtml(fin, diff);
+  if (table !== lastTable) $("#fin-table").innerHTML = lastTable = table;
+  const asking = state.specRequest && !state.specRequest.answered;
+  $("#fin-specs").hidden = fin.length < 2;
+  $("#fin-specs").disabled = !!asking;
+  $("#fin-specs").textContent = asking ? `Asked ${agent}` : "Add specs";
   $("#empty").hidden = cards.length > 0;
 
   // Measure, place what is new, and give room to what grew.
@@ -797,7 +877,6 @@ function render() {
 
 function renderSelection() {
   for (const [id, { el }] of els) el.classList.toggle("selected", selection.has(id));
-  for (const dot of document.querySelectorAll(".nl-dot")) dot.classList.toggle("selected", selection.has(dot.dataset.dot));
 }
 
 // --- the agent's pointing ---
@@ -829,7 +908,6 @@ function renderPointer() {
     }
     chip.innerHTML = `<span class="face" aria-hidden="true"></span><span>${esc(p.reasons?.[id] || agent)}</span>`;
   }
-  for (const dot of document.querySelectorAll(".nl-dot")) dot.classList.toggle("pointed", !!p && p.ids.includes(dot.dataset.dot));
   $("#pointer-note").hidden = !p;
   if (p) $("#pointer-text").textContent = p.note ? `${agent}: ${p.note}` : `${agent} is pointing at ${p.ids.length === 1 ? shortName(byId(p.ids[0])) : `${p.ids.length} cards`}`;
 }
@@ -923,10 +1001,10 @@ document.addEventListener("click", (e) => {
     openLink(link.dataset.link);
     return;
   }
-  const t = e.target.closest("[data-putback], [data-dot], [data-go], [data-style-pick], [data-theme-pick]");
+  const t = e.target.closest("[data-putback], [data-remove-spec], [data-go], [data-style-pick], [data-theme-pick]");
   if (!t) return;
   if (t.dataset.putback) removeFinalist(t.dataset.putback);
-  else if (t.dataset.dot) clickCard(t.dataset.dot);
+  else if (t.dataset.removeSpec) removeSpec(t.dataset.removeSpec);
   else if (t.dataset.go) goTo(t.dataset.go.split(","));
   else if (t.dataset.stylePick) {
     const style = t.dataset.stylePick;
@@ -1161,7 +1239,9 @@ stage.addEventListener(
 document.addEventListener("keydown", (e) => {
   if (e.target.closest?.("input, select, textarea")) return;
   const mod = e.metaKey || e.ctrlKey;
-  if (e.key === "Escape") {
+  if (e.key === "Escape" && finPanel.classList.contains("full")) {
+    setFull(false);
+  } else if (e.key === "Escape") {
     $("#composer").hidden = true;
     clearSelection();
   } else if ((e.key === "Delete" || e.key === "Backspace") && selection.size) {
@@ -1221,8 +1301,11 @@ $("#zoom-out").addEventListener("click", () => (glide(), zoomAt(stage.clientWidt
 $("#zoom-fit").addEventListener("click", () => (glide(), fit()));
 $("#tidy").addEventListener("click", tidy);
 $("#fin-clear").addEventListener("click", clearFinalists);
+$("#fin-specs").addEventListener("click", requestSpecs);
+$("#fin-expand").addEventListener("click", () => setFull(!finPanel.classList.contains("full")));
 $("#fin-toggle").addEventListener("click", () => {
   const closed = finPanel.classList.toggle("closed");
+  if (closed) setFull(false);
   $("#fin-toggle").setAttribute("aria-expanded", String(!closed));
   applyCamera();
 });

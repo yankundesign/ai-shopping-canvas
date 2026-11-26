@@ -47,7 +47,8 @@ All type is system fonts. The canvas runs in a sandboxed frame, so a web font wo
 ## What changed from the test
 
 - **Free canvas** instead of the grid: pan (drag, or scroll), zoom (pinch or ⌘-scroll), select (each click adds a card or takes it out; shift-drag selects a group; empty canvas or Esc clears), drag, Delete with Undo. New cards arrive in empty space below what is there.
-- **Finalists** at the top: select and choose Compare, or drag cards up; drag one out, or use ↓, to put it back. Below them: one line for what they share, each number as a line with the cards on it, and a tag per card ("Cheapest", "Lightest") worked out in `view/differences.mjs`.
+- **Finalists** at the top, up to 4: select and choose Compare, or drag cards up; drag one out, or use ↓, to put it back. They sit side by side over a **compare table**: one row per detail, one cell per finalist, and what they all share folded into one line. Tags ("Cheapest", "Lightest") sit on the photos. The arithmetic is in `view/differences.mjs`.
+- **Add specs** asks the agent for 4–6 specs that would decide between the finalists. The click is the invitation: those specs live in the compare table only (`detailScope: "finalists"`), never on canvas cards, and each row has an × to drop it. A card that joins the finalists later asks for the same specs. **Expand** gives the comparison the whole canvas; Done or Esc gives it back.
 - **Requests**, never "blanks", in the canvas and in everything the agent is told. They wait for the next chat message; **Send now** sends them all.
 - **Details belong to the person.** The agent starts them from the person's words with the first cards. After that the server refuses a detail the person didn't ask for and tells the agent to say it in the chat. Only details the person asked for wait on new cards.
 - **Cards are all the same height**, read in this order: photo and price, then the name, then the details, with labels quietest. The name is one line and opens in full on hover; the price is the largest text on the card. Every card shows every detail ("—" where it has none), so rows line up. What only some cards have (Cheapest, Page not found, a matched photo's credit) sits on the photo.
@@ -60,7 +61,8 @@ All type is system fonts. The canvas runs in a sandboxed frame, so a web font wo
 - **A card that grows pushes the cards right below it down**, only as far as needed. Details make cards taller, and overlapping cards looked worse than this small move.
 - **ChatGPT's "beside the chat" is full screen**: its message box sits over the canvas, and replies show as a short line above it that opens the chat. ChatGPT's real side panel (a "thread" entry point) is opened by the person, and OpenAI lists it for its Work browser only, so it isn't used.
 - **Scrolling inside ChatGPT's chat** belongs to the chat, so in the chat you pan by dragging. Beside the chat, scrolling pans.
-- **A detail can't be removed or renamed yet**, and finalists can't be reordered.
+- **A detail can't be removed or renamed yet** (a compare spec can), and finalists can't be reordered. Removing a spec has no undo; Add specs gets it back.
+- **The agent picks the specs.** One click, no list to choose from first. The invitation stays open 5 minutes after the first answer, so the agent can fill in more than one call, and allows up to 6 new specs per request.
 - **The agent can't add a detail even when asked to in the chat.** The person adds it with + Detail and the agent fills it.
 
 ## Not done
