@@ -7,6 +7,7 @@
 
 import { App } from "@modelcontextprotocol/ext-apps";
 import { differences } from "./differences.mjs";
+import { waitingRequests as waitingFor, contextText as contextFor } from "./context.mjs";
 import { VARIANTS } from "./styles/variants.mjs";
 
 const $ = (sel) => document.querySelector(sel);
@@ -189,44 +190,9 @@ function scopeIds() {
   return { ids: live().filter((c) => isProduct(c) && inView.has(c.id)).map((c) => c.id), scope: "view" };
 }
 
-function waitingRequests() {
-  const details = new Map();
-  for (const c of live()) {
-    if (c.kind !== "product") continue;
-    for (const [d, v] of Object.entries(c.details || {})) if (v.state === "waiting") details.set(d, [...(details.get(d) || []), c.id]);
-  }
-  const items = [...details].map(([d, ids]) => ({ key: `d:${d}:${ids.join(",")}`, text: `fill in "${d}" for ${ids.join(", ")}`, context: `detail "${d}" for ${ids.join(", ")} (fill_details)` }));
-  for (const c of live()) {
-    if (c.kind !== "request") continue;
-    const like = Array.isArray(c.like) && c.like.length ? `, like ${c.like.join(" and ")}` : "";
-    items.push({ key: `c:${c.id}`, text: `find one more product for the empty card ${c.id} ("${c.hint}")${like}`, context: `one more product, hint "${c.hint}"${like} (add_cards with fills_request "${c.id}")` });
-  }
-  const specs = state?.specRequest;
-  if (specs && !specs.answered) {
-    const ids = specs.ids.join(", ");
-    items.push({ key: `s:${specs.at}`, text: `add the specs that would decide between my finalists ${ids}`, context: `specs to compare the finalists ${ids}: pick 4 to 6 that would decide between them and fill every finalist (fill_details; new spec names are allowed for this)` });
-  }
-  return items;
-}
-
-function contextText() {
-  const name = (id) => (byId(id)?.kind === "request" ? `${id} (a request: "${byId(id).hint}")` : `${id} ${(byId(id)?.name || "").slice(0, 70)}`);
-  const sel = [...selection].filter((id) => byId(id) && !byId(id).deleted);
-  const fin = finalistIds();
-  const lines = [`Shopping canvas ${canvasId}: what the person sees right now.`];
-  if (sel.length) lines.push(`Selected (${sel.length}): ${sel.map(name).join("; ")}. "These" means these cards.`);
-  else {
-    const view = live().filter((c) => inView.has(c.id)).map((c) => c.id);
-    lines.push(`Nothing selected. Cards in view (${view.length}): ${view.map(name).join("; ")}.`);
-  }
-  lines.push(fin.length ? `Finalists, the person's shortlist (${fin.length}): ${fin.map(name).join("; ")}. Speak about them first.` : "No finalists yet.");
-  const specs = (state.detailOrder || []).filter((d) => state.detailScope?.[d] === "finalists");
-  if (specs.length) lines.push(`Specs in the compare table, for the finalists: ${specs.join(", ")}.`);
-  const waiting = waitingRequests();
-  lines.push(waiting.length ? `Requests waiting for you, to answer in your next reply: ${waiting.map((w) => w.context).join("; ")}.` : "No requests waiting.");
-  lines.push("Answer comparisons briefly in the chat and call point_at_cards on the cards you name. Don't add details the person didn't ask for.");
-  return lines.join("\n");
-}
+// The text and the requests come from context.mjs, which the prompt tests use too.
+const waitingRequests = () => waitingFor(state);
+const contextText = () => contextFor(state, { canvasId, selection: [...selection], inView: [...inView] });
 
 // One update at a time, in order: overlapping updates arrived out of order in the test.
 let viewChain = Promise.resolve();

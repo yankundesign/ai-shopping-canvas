@@ -5,7 +5,8 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
-const DATA_DIR = path.resolve(path.dirname(new URL(import.meta.url).pathname), "data");
+// DATA_DIR lets the prompt tests run their own server without touching your canvases.
+const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.resolve(path.dirname(new URL(import.meta.url).pathname), "data");
 const FILE = path.join(DATA_DIR, "canvases.json");
 const MAX_EVENTS = 3000;
 

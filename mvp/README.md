@@ -32,6 +32,22 @@ It prints the connector URL and a one-click **Add to Claude** link. For ChatGPT:
 
 Settings, as environment variables: `STYLE` picks the look when there is more than one (Trace is the default), and `DEV_PANEL=0` hides the Dev button for the five-person test.
 
+## Prompt tests, before testing by hand
+
+`npm run eval` puts a real Claude in the agent's seat and plays the person on the canvas: it opens the sample cards, selects, leaves requests, picks finalists or clicks Add specs, then sends a message and checks what changed. Scenarios and their checks are in `evals/scenarios.mjs`; add one by copying another. The agent gets the same context text the canvas sends (`view/context.mjs`) and sees only the tools a host shows it, plus web search.
+
+```bash
+npm run eval                          # every scenario except the slow web search
+npm run eval -- selection add-specs   # some of them
+npm run eval -- --slow                # include first-search (finds real products)
+npm run eval -- --dry-run             # no model: set up each canvas and print what the agent would get
+npm run eval -- --list
+```
+
+It needs one of two ways to reach Claude. **API key** (`ANTHROPIC_API_KEY` set; used when present): the Anthropic SDK, exact control over what the agent sees, billed to your API account. **Claude CLI** (`--agent cli`): your Claude login, after `claude` then `/login` once in a terminal; it runs inside Claude Code's harness, so it's a little further from Claude in the browser. The model is Claude Opus 5.5 unless you pass `--model`. Neither tests ChatGPT.
+
+It runs its own canvas server on port 8799 with data in `evals/data/`, so your canvases are untouched. Each run writes a report to `evals/results/`: per scenario the checks, the agent's reply, its tool calls and the context it got. "Must" checks decide pass or fail; soft checks (marked ~) judge wording and only flag things to read.
+
 ## The style
 
 **Trace** was chosen on 2026-11-25, after a side-by-side review with two others (Paper and Plate, since removed). It is grounded in three references from the mood board: RAG Pipeline, AI Spreadsheet Fill and Dropdown Component. Frosted cards on a dot grid, labels in mono, numbered sources, requests as skeleton bars that bloom into answers, and finalists that keep a number and a colour on the number lines.
@@ -63,7 +79,7 @@ All type is system fonts. The canvas runs in a sandboxed frame, so a web font wo
 - **Scrolling inside ChatGPT's chat** belongs to the chat, so in the chat you pan by dragging. Beside the chat, scrolling pans.
 - **A detail can't be removed or renamed yet** (a compare spec can), and finalists can't be reordered. Removing a spec has no undo; Add specs gets it back.
 - **The agent picks the specs.** One click, no list to choose from first. The invitation stays open 5 minutes after the first answer, so the agent can fill in more than one call, and allows up to 6 new specs per request.
-- **The agent can't add a detail even when asked to in the chat.** The person adds it with + Detail and the agent fills it.
+- **The agent adds a detail when the person asks for it in the chat** ("add the weight to the cards"): it passes their words as `asked_in_chat`, and the detail is theirs, like one from + Detail. Without that ask the server still refuses a new detail. The server can't see the chat, so this trusts the agent; each one is logged with the words for the report.
 
 ## Not done
 
