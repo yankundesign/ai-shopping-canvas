@@ -42,6 +42,7 @@ const cam = { x: 0, y: 0, k: 1 };
 let fitted = false;
 let loadedOnce = false;
 let drag = null; // { ids, start: Map, pos: Map } while canvas cards are being dragged
+const homeH = new Map(); // id -> the height a card last had on the canvas, kept while it is a finalist
 let pollTimer = null;
 let lastContextText = "";
 const viewLog = [];
@@ -298,7 +299,8 @@ async function addRequestCard(hint) {
 
 // ---------- finalists ----------
 
-function setFinalists(ids, how, moves = []) {
+function setFinalists(ids, how, moves = [], shift = true) {
+  trayShift = shift;
   optimistic(
     (s) => {
       s.finalists = ids;
@@ -320,7 +322,12 @@ function compare(ids) {
   const add = ids.filter((id) => isProduct(byId(id)) && !fin.includes(id));
   const room = MAX_FINALISTS - fin.length;
   if (add.length > room) setStatus(room > 0 ? `Up to ${MAX_FINALISTS} finalists side by side, so ${room} went in.` : `Up to ${MAX_FINALISTS} finalists side by side. Put one back first.`, "fin", 6000);
-  if (add.length && room > 0) setFinalists([...fin, ...add.slice(0, room)], "compare");
+  if (add.length && room > 0) {
+    // Comparing is asking to see the comparison, so a folded tray opens.
+    finPanel.classList.remove("closed");
+    $("#fin-toggle").setAttribute("aria-expanded", "true");
+    setFinalists([...fin, ...add.slice(0, room)], "compare");
+  }
 }
 
 /** Add specs: the person asks the agent for the specs that would decide between the finalists. */
@@ -361,28 +368,179 @@ function setFull(on) {
   applyCamera();
 }
 
-/** Back to the canvas: where the person dropped it, or where it was if that's still free. */
-function removeFinalist(id, at) {
-  const c = byId(id);
-  if (!c) return;
-  const spot = at || findFree(c.x ?? 0, c.y ?? 0, heights.get(id) || 320);
-  setFinalists(finalistIds().filter((f) => f !== id), "remove", [{ id, x: Math.round(spot.x), y: Math.round(spot.y) }]);
+/**
+ * Where each finalist lands if it is put back now: where it was, or the nearest free spot.
+ * The outlines on the canvas show these spots, so Clear and ↓ send a card where its outline is.
+ */
+function homeSpots(ids) {
+  const landed = []; // so two finalists never land on each other
+  return ids.map((id) => {
+    const c = byId(id);
+    const h = homeH.get(id) || 320;
+    const spot = findFree(c.x ?? 0, c.y ?? 0, h, [], landed);
+    const home = { id, x: Math.round(spot.x), y: Math.round(spot.y), w: CARD_W, h };
+    landed.push(home);
+    return home;
+  });
 }
 
-/** Clear: every finalist goes back to the canvas, each where it was if that's still free. Undo brings them back. */
+/** Back to the canvas: where the person dropped it, or onto its outline. */
+function removeFinalist(id, at) {
+  if (!byId(id)) return;
+  const spot = at || homeSpots(finalistIds()).find((h) => h.id === id);
+  if (!spot) return;
+  // Dropped by hand, the card stays under the hand: the canvas doesn't shift then.
+  setFinalists(finalistIds().filter((f) => f !== id), "remove", [{ id, x: Math.round(spot.x), y: Math.round(spot.y) }], !at);
+}
+
+/** Clear: every finalist goes back to the canvas, each onto its outline. Undo brings them back. */
 function clearFinalists() {
   const ids = finalistIds();
   if (!ids.length) return;
-  const landed = []; // so two finalists never land on each other
-  const moves = ids.map((id) => {
-    const c = byId(id);
-    const h = heights.get(id) || 320;
-    const spot = findFree(c.x ?? 0, c.y ?? 0, h, [], landed);
-    landed.push({ id, x: spot.x, y: spot.y, w: CARD_W, h });
-    return { id, x: Math.round(spot.x), y: Math.round(spot.y) };
-  });
+  const moves = homeSpots(ids).map(({ id, x, y }) => ({ id, x, y }));
   undoStack.push({ finalists: ids, positions: ids.map((id) => ({ id, x: byId(id).x, y: byId(id).y })).filter((p) => p.x != null) });
   setFinalists([], "clear", moves);
+}
+
+// ---------- flights ----------
+// A card that changes place between the canvas and the finalists flies there instead of
+// jumping. The card itself is already where it is going, hidden; two copies make the trip,
+// the old look fading into the new one. A card that left for the finalists leaves an
+// outline on the canvas: where it came from, and where it goes back to.
+
+const FLIGHT_MS = 520;
+const STAGGER_MS = 55; // between one card taking off and the next
+const flights = new Map(); // id -> { nodes, home } while a card is in the air
+const homes = new Map(); // id -> the outline's element
+let flyFrom = null; // id -> rect: a card let go by hand takes off from where it was dropped
+let trayShift = false; // the person just changed the finalists: keep the canvas clear of the tray
+let drawTimer = null;
+const calm = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/** A spring that settles: a little past the target (about 2%), then home. 0 at t = 0, 1 at t = 1. */
+function spring(t) {
+  const z = 0.78;
+  const w = 8.85;
+  const wd = w * Math.sqrt(1 - z * z);
+  return 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + ((z * w) / wd) * Math.sin(wd * t));
+}
+
+/** from and to are screen rects; w is the copy's own width before any scaling. */
+function flightFrames(from, to, w, lean) {
+  const a = { x: from.left, y: from.top, s: from.width / w };
+  const b = { x: to.left, y: to.top, s: to.width / w };
+  const N = 24;
+  return Array.from({ length: N + 1 }, (_, i) => {
+    const p = i === N ? 1 : spring(i / N);
+    const mid = clamp(p, 0, 1);
+    const at = (k) => a[k] + (b[k] - a[k]) * p;
+    // It leans into the way it is going, most at half way, and is level when it lands.
+    return { transform: `translate(${at("x")}px, ${at("y")}px) rotate(${lean * 4 * mid * (1 - mid)}deg) scale(${at("s")})` };
+  });
+}
+
+function copyOf(el) {
+  const n = el.cloneNode(true);
+  n.classList.remove("selected", "pointed", "dragging", "landed", "lifted", "flying", "ghost", "out", "drop-ghost");
+  n.classList.add("flyer");
+  n.removeAttribute("tabindex");
+  n.setAttribute("aria-hidden", "true");
+  n.querySelector(":scope > .point-chip")?.remove();
+  Object.assign(n.style, { left: "", top: "", visibility: "", transform: "", width: `${el.offsetWidth}px` });
+  for (const img of n.querySelectorAll("img")) Object.assign(img, { loading: "eager", decoding: "sync" });
+  return n;
+}
+
+function endFlight(id) {
+  const f = flights.get(id);
+  if (!f) return;
+  flights.delete(id);
+  for (const n of f.nodes) n.remove();
+  els.get(id)?.el.classList.remove("flying");
+  renderHomes();
+}
+
+/** Before the cards move: where each one that is about to change place is now, and how it looks. */
+function takeOff(fin) {
+  const leaving = new Map();
+  const from = flyFrom;
+  if (!loadedOnce || calm() || document.hidden) return leaving;
+  for (const [id, { el }] of els) {
+    const c = byId(id);
+    if (!c || c.deleted || !el.isConnected || el.classList.contains("fin") === fin.includes(id)) continue;
+    const src = flights.get(id)?.nodes[0] || el; // already in the air: it turns round from where it is
+    const rect = from?.get(id) || src.getBoundingClientRect();
+    if (rect.width) leaving.set(id, { from: rect, old: copyOf(src), byHand: !!from?.has(id) });
+    endFlight(id);
+  }
+  return leaving;
+}
+
+/** After they have moved: fly each one from where it was to where it is, left to right. */
+function fly(leaving, fin) {
+  const sr = stage.getBoundingClientRect();
+  const order = [...leaving.keys()].sort((a, b) => leaving.get(a).from.left - leaving.get(b).from.left || leaving.get(a).from.top - leaving.get(b).from.top);
+  let i = 0;
+  for (const id of order) {
+    const { from, old, byHand } = leaving.get(id);
+    const el = els.get(id)?.el;
+    if (!el?.isConnected) continue;
+    let to;
+    let home = null;
+    if (fin.includes(id)) to = el.getBoundingClientRect();
+    else {
+      // Worked out, not measured: the canvas may be gliding, and the card lands where it will be.
+      const r = rectOf(byId(id));
+      if (!r || finPanel.classList.contains("full")) continue;
+      const s = toScreen(r);
+      to = { left: sr.left + s.l, top: sr.top + s.t, width: s.r - s.l };
+      if (!byHand) home = { id, x: r.x, y: r.y, h: r.h }; // put down by hand, it needs no outline to aim for
+    }
+    if (!to.width) continue;
+    const now = copyOf(el);
+    const lean = clamp((to.left - from.left) / 240, -1, 1) * 2.5;
+    const timing = { duration: FLIGHT_MS, delay: i++ * STAGGER_MS, fill: "both", easing: "linear" };
+    document.body.append(now, old); // the old look on top, fading
+    const trip = now.animate(flightFrames(from, to, parseFloat(now.style.width), lean), timing);
+    old.animate(flightFrames(from, to, parseFloat(old.style.width), lean), timing);
+    now.animate([{ opacity: 0 }, { opacity: 1 }], { ...timing, duration: FLIGHT_MS * 0.25 });
+    old.animate([{ opacity: 1 }, { opacity: 0 }], { ...timing, duration: FLIGHT_MS * 0.5 });
+    const flight = { nodes: [now, old], home };
+    flights.set(id, flight);
+    el.classList.add("flying");
+    trip.finished.then(() => flights.get(id) === flight && endFlight(id)).catch(() => {});
+  }
+  renderHomes();
+}
+
+/** The outlines: one for each finalist, and one under a card on its way back until it lands. */
+function renderHomes() {
+  const fin = finalistIds();
+  const spots = homeSpots(fin).map((h, i) => ({ ...h, n: i + 1 }));
+  for (const [id, f] of flights) if (f.home && !fin.includes(id)) spots.push(f.home);
+  for (const [id, el] of homes) {
+    if (spots.some((s) => s.id === id)) continue;
+    el.remove();
+    homes.delete(id);
+  }
+  for (const s of spots) {
+    let el = homes.get(s.id);
+    if (!el) {
+      el = Object.assign(document.createElement("div"), { className: "home" });
+      world.prepend(el); // under every card
+      homes.set(s.id, el);
+    }
+    Object.assign(el.style, { left: `${s.x}px`, top: `${s.y}px`, height: `${s.h}px` });
+    if (s.n) el.dataset.n = s.n;
+  }
+}
+
+/** The tray is gone at once, so the cards have somewhere to fly from; this is its fade. */
+function fadeTray(box) {
+  const ghost = Object.assign(document.createElement("div"), { className: "tray-ghost" });
+  Object.assign(ghost.style, { left: `${box.x}px`, top: `${box.y}px`, width: `${box.w}px`, height: `${box.h}px`, borderRadius: box.radius });
+  stage.append(ghost);
+  ghost.animate([{ opacity: 1 }, { opacity: 0, transform: "translateY(-6px)" }], { duration: 240, easing: "ease-out" }).finished.then(() => ghost.remove(), () => ghost.remove());
 }
 
 // ---------- delete and undo ----------
@@ -460,9 +618,12 @@ function applyCamera() {
   renderMarkers();
 }
 
+let glideTimer = null;
 function glide() {
   world.classList.add("gliding");
-  setTimeout(() => world.classList.remove("gliding"), 320);
+  stage.classList.add("gliding"); // the dots glide with the cards
+  clearTimeout(glideTimer);
+  glideTimer = setTimeout(() => (world.classList.remove("gliding"), stage.classList.remove("gliding")), 320);
 }
 
 function fit() {
@@ -730,7 +891,7 @@ function tableHtml(fin, diff) {
   const cards = fin.map(byId);
   const next = new Map();
   const names = (state.detailOrder || []).filter((n) => !diff.sharedNames?.includes(n) && cards.some((c) => c.details?.[n]));
-  const rows = names.map((name) => {
+  const rows = names.map((name, r) => {
     const cells = cards.map((c, i) => {
       const d = c.details?.[name];
       const key = `${name}|${c.id}`;
@@ -741,17 +902,17 @@ function tableHtml(fin, diff) {
       else if (d.state === "waiting") inner = `<span class="wait">waiting for ${esc(agent)}</span>`;
       else if (d.state === "couldnt_find") inner = `<span class="cant">Couldn't find</span>`;
       else inner = `<span class="val">${esc(d.value)}</span>${srcHtml(d)}`;
-      return `<div class="ft-cell${arrived ? " arrived" : ""}" role="cell" data-n="${i + 1}">${inner}</div>`;
+      return `<div class="ft-cell${arrived ? " arrived" : ""}" role="cell" data-n="${i + 1}" style="--r:${r}">${inner}</div>`;
     });
     const remove = state.detailScope?.[name] === "finalists" ? `<button class="ft-remove quiet" type="button" data-remove-spec="${esc(name)}" title="Remove this row" aria-label="Remove ${esc(name)}">×</button>` : "";
-    return `<div class="ft-label" role="rowheader" title="${esc(name)}"><span>${esc(name)}</span>${remove}</div>${cells.join("")}`;
+    return `<div class="ft-label" role="rowheader" title="${esc(name)}" style="--r:${r}"><span>${esc(name)}</span>${remove}</div>${cells.join("")}`;
   });
   const asking = state.specRequest && !state.specRequest.answered;
   if (asking) {
     const wait = `<span class="wait">waiting for ${esc(agent)}</span>`;
     for (let r = 0; r < 3; r++) rows.push(`<div class="ft-label">${wait}</div>${cards.map((_, i) => `<div class="ft-cell" data-n="${i + 1}">${wait}</div>`).join("")}`);
   }
-  if (diff.sharedText) rows.push(`<div class="ft-label" role="rowheader">${esc(diff.sharedLabel)}</div><div class="ft-cell ft-common" role="cell">${esc(diff.shared.join(" · "))}</div>`);
+  if (diff.sharedText) rows.push(`<div class="ft-label" role="rowheader" style="--r:${rows.length}">${esc(diff.sharedLabel)}</div><div class="ft-cell ft-common" role="cell" style="--r:${rows.length}">${esc(diff.shared.join(" · "))}</div>`);
   if (!rows.length && fin.length >= 2) rows.push(`<div class="ft-empty">Nothing to compare yet. Add specs and ${esc(agent)} fills them in for each finalist.</div>`);
   tableStates = next;
   return rows.join("");
@@ -765,8 +926,12 @@ function render() {
   const diff = differences(fin.map(byId), state.detailOrder || [], money);
   const cards = live();
   const ids = new Set(cards.map((c) => c.id));
+  // Before anything moves: what is about to change place, and how much canvas the tray leaves.
+  const leaving = takeOff(fin);
+  const tray = { hidden: finPanel.hidden, full: finPanel.classList.contains("full"), bottom: visibleArea().t, x: finPanel.offsetLeft, y: finPanel.offsetTop, w: finPanel.offsetWidth, h: finPanel.offsetHeight };
   for (const [id, entry] of els) {
     if (!ids.has(id)) {
+      endFlight(id);
       entry.el.remove();
       els.delete(id);
       selection.delete(id);
@@ -795,7 +960,7 @@ function render() {
       entry.kind = c.kind;
       entry.json = json;
     }
-    entry.el.className = `card ${c.kind}${inFin ? " fin" : ""}${drag?.ids.includes(c.id) ? " dragging" : ""}${entry.landed > Date.now() ? " landed" : ""}`;
+    entry.el.className = `card ${c.kind}${inFin ? " fin" : ""}${drag?.ids.includes(c.id) ? " dragging" : ""}${entry.landed > Date.now() ? " landed" : ""}${flights.has(c.id) ? " flying" : ""}`;
     if (inFin) entry.el.dataset.n = fin.indexOf(c.id) + 1;
     else delete entry.el.dataset.n;
     if (!inFin && entry.el.parentNode !== world) world.append(entry.el);
@@ -820,6 +985,7 @@ function render() {
   // Measure, place what is new, and give room to what grew.
   const before = heights;
   heights = new Map(canvasCards().map((c) => [c.id, els.get(c.id).el.offsetHeight]));
+  for (const [id, h] of heights) homeH.set(id, h);
   if (!drag) {
     const unplaced = canvasCards().filter((c) => c.x == null);
     if (unplaced.length) placeCards(unplaced);
@@ -838,7 +1004,31 @@ function render() {
   if (!fitted && canvasCards().some((c) => c.x != null)) {
     fitted = true;
     fit();
-  } else applyCamera();
+  } else {
+    // The tray takes its room from the top, so the canvas moves down by as much, and back
+    // up when the tray goes. Only when the person changed the finalists: never under them.
+    const by = visibleArea().t - tray.bottom;
+    if (trayShift && by && !tray.full && !finPanel.classList.contains("full")) {
+      cam.y += by;
+      if (!calm()) glide();
+    }
+    applyCamera();
+  }
+  trayShift = false;
+  if (leaving.size) {
+    fly(leaving, fin);
+    if (tray.hidden && !finPanel.hidden) finPanel.animate([{ opacity: 0, transform: "translateY(-8px)" }, { opacity: 1, transform: "none" }], { duration: 260, easing: "cubic-bezier(0.2, 0.7, 0.2, 1)" });
+    if (!tray.hidden && finPanel.hidden) fadeTray({ ...tray, radius: getComputedStyle(finPanel).borderRadius });
+    if ([...leaving.keys()].some((id) => fin.includes(id))) {
+      // The rows draw in under the cards as they land.
+      const table = $("#fin-table");
+      table.classList.remove("draw");
+      void table.offsetWidth;
+      table.classList.add("draw");
+      clearTimeout(drawTimer);
+      drawTimer = setTimeout(() => table.classList.remove("draw"), 1400);
+    }
+  } else renderHomes();
 }
 
 function renderSelection() {
@@ -1147,13 +1337,16 @@ function endGesture(e, cancelled) {
   finPanel.classList.remove("over");
   if (g.type === "card") {
     const d = drag;
+    const toFinalists = !cancelled && inZone(e, dropZoneAt(g));
+    // Dropped on the finalists, a card flies in from where it was let go.
+    if (toFinalists) flyFrom = new Map(d.ids.map((id) => [id, els.get(id).el.getBoundingClientRect()]));
     clearDropGhosts();
     drag = null;
     for (const id of d.ids) els.get(id).el.classList.remove("dragging");
-    const toFinalists = !cancelled && inZone(e, dropZoneAt(g));
     if (cancelled || toFinalists || !d.pos.size) {
       render(); // back where they were
       if (toFinalists) compare(d.ids);
+      flyFrom = null;
     } else {
       const positions = d.ids.map((id) => ({ id, x: Math.round(d.pos.get(id).x), y: Math.round(d.pos.get(id).y) }));
       optimistic(
@@ -1163,12 +1356,15 @@ function endGesture(e, cancelled) {
       );
     }
   } else if (g.type === "finalist") {
+    const from = g.ghost.getBoundingClientRect();
     g.ghost.remove();
     els.get(g.id)?.el.classList.remove("lifted");
     if (!cancelled && g.out) {
       // It lands where the person dropped it.
       const sr = stage.getBoundingClientRect();
+      flyFrom = new Map([[g.id, from]]);
       removeFinalist(g.id, { x: (e.clientX + g.ox - sr.left - cam.x) / cam.k, y: (e.clientY + g.oy - sr.top - cam.y) / cam.k });
+      flyFrom = null;
     }
   }
   viewChanged();

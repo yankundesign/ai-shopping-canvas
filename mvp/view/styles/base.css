@@ -59,6 +59,7 @@ button.primary { background: var(--ink); color: var(--bg); border-color: var(--i
 #stage.panning { cursor: grabbing; }
 #world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 #world.gliding { transition: transform 0.3s var(--ease); }
+#stage.gliding { transition: background-position 0.3s var(--ease), background-size 0.3s var(--ease); } /* the dots glide with the cards */
 #world.tidying .card { transition: left 0.35s var(--ease), top 0.35s var(--ease), box-shadow var(--dur) var(--ease); }
 #marquee { position: absolute; border: 1px solid var(--sel); background: color-mix(in srgb, var(--sel) 8%, transparent); border-radius: 2px; pointer-events: none; z-index: 3; }
 #empty { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; pointer-events: none; }
@@ -179,6 +180,19 @@ a.src:hover { color: var(--ink); text-decoration: underline; }
 .card.drop-ghost { position: fixed; z-index: 50; margin: 0; pointer-events: none; transform-origin: 0 0; opacity: 0.65; box-shadow: var(--ring-sel), var(--shadow-lift); animation: drop-ghost-in var(--dur) var(--ease); }
 @keyframes drop-ghost-in { from { opacity: 1; } }
 .putback { padding: 1px 6px; font-size: var(--fs-small); }
+
+/* A card flying between the canvas and the finalists. The card itself waits, hidden, where
+   it is going; these are the copies that make the trip (see "flights" in main.js). */
+.card.flying { visibility: hidden; }
+.card.flyer { position: fixed !important; left: 0; top: 0; z-index: 50; margin: 0; pointer-events: none; transform-origin: 0 0; box-shadow: var(--shadow-lift) !important; animation: none; will-change: transform, opacity; }
+/* Where a finalist came from, and where it goes back to. It carries the finalist's number. */
+.home { position: absolute; width: var(--card-w); border: 1.5px dashed var(--id, var(--ink-3)); border-radius: var(--r-card); opacity: 0.5; pointer-events: none; animation: home-in 0.5s var(--ease) both; transition: opacity var(--dur) var(--ease), background var(--dur) var(--ease); }
+.home::before { content: attr(data-n); position: absolute; right: 9px; top: 8px; width: 17px; height: 17px; border-radius: 50%; display: grid; place-items: center; background: var(--id, var(--ink-3)); color: #fff; font: 600 10px/1 var(--font-num); }
+@keyframes home-in { from { opacity: 0; } }
+/* Over a finalist, its outline answers: this is the one. */
+#stage:has(.card.fin[data-n="1"]:hover) .home[data-n="1"], #stage:has(.card.fin[data-n="2"]:hover) .home[data-n="2"],
+#stage:has(.card.fin[data-n="3"]:hover) .home[data-n="3"], #stage:has(.card.fin[data-n="4"]:hover) .home[data-n="4"] { opacity: 1; background: color-mix(in srgb, var(--id, var(--ink-3)) 10%, transparent); }
+.tray-ghost { position: absolute; z-index: 4; pointer-events: none; background: var(--panel); backdrop-filter: blur(var(--panel-blur)); border: 1px solid var(--line); }
 #drop-hint { position: absolute; left: 10px; right: 10px; top: 10px; height: 64px; z-index: 4; display: grid; place-items: center; color: var(--ink-2); background: var(--panel); backdrop-filter: blur(var(--panel-blur)); border: 1.5px dashed var(--ink-3); border-radius: calc(var(--r-card) + 4px); pointer-events: none; animation: point-in 0.2s var(--ease) both; }
 
 /* Numbers as lines, with the cards placed on them. */
@@ -199,6 +213,8 @@ a.src:hover { color: var(--ink); text-decoration: underline; }
 .ft-common, .ft-empty { grid-column: 2 / -1; color: var(--ink-2); }
 .ft-empty { grid-column: 1 / -1; padding: 10px 0 2px; border-top: 1px solid var(--line); }
 .ft-cell.arrived .val { animation: arrive 0.6s var(--ease) both; }
+/* The rows draw in under the cards as they land, one after another. */
+#fin-table.draw > * { animation: arrive 0.5s var(--ease) both; animation-delay: calc(220ms + var(--r, 0) * 50ms); }
 
 /* ---------- controls on the stage ---------- */
 #dock, #zoom, #composer { position: absolute; z-index: 6; display: flex; align-items: center; background: var(--panel); backdrop-filter: blur(var(--panel-blur)); border: 1px solid var(--line); box-shadow: var(--shadow-lift); }
