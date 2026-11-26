@@ -441,12 +441,12 @@ function flightFrames(from, to, w, lean) {
 
 function copyOf(el) {
   const n = el.cloneNode(true);
-  n.classList.remove("selected", "pointed", "dragging", "landed", "lifted", "flying", "ghost", "out", "drop-ghost");
+  n.classList.remove("selected", "pointed", "dragging", "landed", "lifted", "flying", "ghost", "out", "drop-ghost", "near");
   n.classList.add("flyer");
   n.removeAttribute("tabindex");
   n.setAttribute("aria-hidden", "true");
   n.querySelector(":scope > .point-chip")?.remove();
-  Object.assign(n.style, { left: "", top: "", visibility: "", transform: "", width: `${el.offsetWidth}px` });
+  Object.assign(n.style, { left: "", top: "", visibility: "", transform: "", rotate: "", zIndex: "", width: `${el.offsetWidth}px` });
   for (const img of n.querySelectorAll("img")) Object.assign(img, { loading: "eager", decoding: "sync" });
   return n;
 }
@@ -960,7 +960,7 @@ function render() {
       entry.kind = c.kind;
       entry.json = json;
     }
-    entry.el.className = `card ${c.kind}${inFin ? " fin" : ""}${drag?.ids.includes(c.id) ? " dragging" : ""}${entry.landed > Date.now() ? " landed" : ""}${flights.has(c.id) ? " flying" : ""}`;
+    entry.el.className = `card ${c.kind}${inFin ? " fin" : ""}${drag?.ids.includes(c.id) ? " dragging" : ""}${entry.landed > Date.now() ? " landed" : ""}${flights.has(c.id) ? " flying" : ""}${near === entry.el ? " near" : ""}`;
     if (inFin) entry.el.dataset.n = fin.indexOf(c.id) + 1;
     else delete entry.el.dataset.n;
     if (!inFin && entry.el.parentNode !== world) world.append(entry.el);
@@ -1187,6 +1187,73 @@ stage.addEventListener("mouseover", (e) => {
   if (name) name.classList.toggle("cut", name.firstElementChild.scrollWidth > name.firstElementChild.clientWidth + 1);
 });
 
+// --- the hand: a card answers the cursor ---
+// Under the cursor it rises and its photo leans toward the cursor. Picked up, it hangs from
+// where it was taken, swings behind the hand, and swings to rest when let go. The text on a
+// card never moves by itself: only the photo does, and the card as a whole.
+
+let near = null; // the card under the cursor
+let zTop = 0; // a card put down stays on top of what it was put on
+
+function setNear(el, e) {
+  if (near !== el) {
+    near?.classList.remove("near");
+    near = el;
+    near?.classList.add("near");
+  }
+  if (!el) return;
+  const r = el.getBoundingClientRect();
+  el.style.setProperty("--mx", clamp(((e.clientX - r.left) / r.width) * 2 - 1, -1, 1).toFixed(2));
+  el.style.setProperty("--my", clamp(((e.clientY - r.top) / r.height) * 2 - 1, -1, 1).toFixed(2));
+}
+
+const SWING = { stiffness: 230, damping: 18, perSpeed: 6, most: 7 }; // perSpeed: degrees per px/ms; most: the furthest it leans
+const swings = new Map(); // el -> { rot, vel, held, sign }
+let pull = 0; // how far the hand's speed pulls a held card over, in degrees
+let pulledAt = 0; // when the hand last moved
+let swingAt = 0;
+let swingFrame = 0;
+
+function swingTick(now) {
+  const dt = Math.min(0.032, (now - swingAt) / 1000);
+  swingAt = now;
+  for (const [el, s] of swings) {
+    const target = s.held ? s.sign * pull : 0;
+    s.vel += (SWING.stiffness * (target - s.rot) - SWING.damping * s.vel) * dt;
+    s.rot += s.vel * dt;
+    if (!s.held && Math.abs(s.rot) < 0.03 && Math.abs(s.vel) < 0.6) {
+      el.style.rotate = "";
+      swings.delete(el);
+    } else el.style.rotate = `${s.rot.toFixed(2)}deg`;
+  }
+  if (now - pulledAt > 50) pull *= Math.exp(-dt * 14); // a hand that stops lets the card hang level
+  swingFrame = swings.size ? requestAnimationFrame(swingTick) : 0;
+}
+
+/** The card hangs from (fx, fy), as fractions of its width and height. Taken above its middle, it trails one way; below, the other. */
+function hold(el, fx, fy) {
+  el.style.setProperty("--gx", `${(fx * 100).toFixed(1)}%`);
+  el.style.setProperty("--gy", `${(fy * 100).toFixed(1)}%`);
+  if (calm()) return;
+  const lever = (0.5 - fy) * 2;
+  swings.set(el, { rot: swings.get(el)?.rot || 0, vel: 0, held: true, sign: (lever < 0 ? -1 : 1) * Math.max(Math.abs(lever), 0.4) });
+  if (!swingFrame) {
+    swingAt = performance.now();
+    swingFrame = requestAnimationFrame(swingTick);
+  }
+}
+
+/** Let go: it swings to rest, or stops at once when it is about to fly somewhere. */
+function release(el, atOnce) {
+  const s = swings.get(el);
+  if (!s) return;
+  s.held = false;
+  if (atOnce) {
+    el.style.rotate = "";
+    swings.delete(el);
+  }
+}
+
 // --- pointer gestures on the stage: pan, marquee, click, drag cards, drag finalists out ---
 
 let gesture = null;
@@ -1215,12 +1282,22 @@ stage.addEventListener("pointerdown", (e) => {
 
 function beginDrag(g) {
   $("#composer").hidden = true;
+  setNear(null);
   if (g.type === "card") {
     // A selected card brings the rest of the selection along; any other card moves alone.
     // Dragging never changes what is selected, so rearranging keeps a selection the person built.
     const ids = selection.has(g.id) ? canvasCards().filter((c) => selection.has(c.id) && c.x != null).map((c) => c.id) : [g.id];
-    drag = { ids, start: new Map(ids.map((id) => [id, { x: byId(id).x, y: byId(id).y }])), pos: new Map() };
-    for (const id of ids) els.get(id).el.classList.add("dragging");
+    drag = { ids, start: new Map(ids.map((id) => [id, { x: byId(id).x, y: byId(id).y }])), pos: new Map(), at: { x: g.sx, t: performance.now() } };
+    pull = 0;
+    // Every card in the hand hangs from the same point as the one that was taken.
+    const r = els.get(g.id).el.getBoundingClientRect();
+    const fx = clamp((g.sx - r.left) / r.width, 0, 1);
+    const fy = clamp((g.sy - r.top) / r.height, 0, 1);
+    for (const id of ids) {
+      const el = els.get(id).el;
+      el.classList.add("dragging");
+      hold(el, fx, fy);
+    }
     if (finPanel.hidden && ids.some((id) => isProduct(byId(id)))) $("#drop-hint").hidden = false;
   } else if (g.type === "finalist") {
     const el = els.get(g.id).el;
@@ -1252,8 +1329,9 @@ function showDropGhosts(over) {
     let ghost = drag.ghosts.get(id);
     if (!ghost) {
       ghost = el.cloneNode(true);
-      ghost.classList.remove("selected", "dragging", "landed");
+      ghost.classList.remove("selected", "dragging", "landed", "near");
       ghost.classList.add("drop-ghost");
+      ghost.style.rotate = "";
       document.body.append(ghost);
       drag.ghosts.set(id, ghost);
       el.style.visibility = "hidden";
@@ -1288,6 +1366,13 @@ stage.addEventListener("pointermove", (e) => {
     cam.y = g.cam.y + dy;
     applyCamera();
   } else if (g.type === "card") {
+    const now = performance.now();
+    if (now - drag.at.t > 4) {
+      const speed = (e.clientX - drag.at.x) / (now - drag.at.t); // px per ms
+      pull += (clamp(speed * SWING.perSpeed, -SWING.most, SWING.most) - pull) * 0.5;
+      pulledAt = now;
+      drag.at = { x: e.clientX, t: now };
+    }
     for (const id of drag.ids) {
       const s = drag.start.get(id);
       const p = { x: s.x + dx / cam.k, y: s.y + dy / cam.k };
@@ -1342,7 +1427,12 @@ function endGesture(e, cancelled) {
     if (toFinalists) flyFrom = new Map(d.ids.map((id) => [id, els.get(id).el.getBoundingClientRect()]));
     clearDropGhosts();
     drag = null;
-    for (const id of d.ids) els.get(id).el.classList.remove("dragging");
+    for (const id of d.ids) {
+      const el = els.get(id).el;
+      el.classList.remove("dragging");
+      release(el, cancelled || toFinalists);
+      if (!cancelled && !toFinalists) el.style.zIndex = ++zTop; // what was put down last is on top
+    }
     if (cancelled || toFinalists || !d.pos.size) {
       render(); // back where they were
       if (toFinalists) compare(d.ids);
@@ -1376,6 +1466,12 @@ function dropZoneAt(g) {
 stage.addEventListener("pointermove", (e) => {
   if (gesture?.moved && gesture.type === "card") gesture.zone = dropZone();
 });
+// The card under the cursor, when nothing is being dragged. A finger has no hover.
+stage.addEventListener("pointermove", (e) => {
+  if (gesture?.moved || e.pointerType === "touch") return setNear(null);
+  setNear(e.target.closest?.(".card.product") || null, e);
+});
+stage.addEventListener("pointerleave", () => setNear(null));
 stage.addEventListener("pointerup", (e) => endGesture(e, false));
 stage.addEventListener("pointercancel", (e) => endGesture(e, true));
 

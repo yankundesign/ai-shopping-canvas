@@ -22,7 +22,9 @@
   --border-card: 1px solid var(--line); --shadow-card: none;
   --shadow-lift: 0 12px 32px rgba(0, 0, 0, 0.16); --shadow-panel: 0 1px 0 var(--line);
   --ring-sel: 0 0 0 2px var(--sel); --ring-agent: 0 0 0 2px var(--agent), 0 0 0 6px var(--agent-soft);
+  --shadow-hover: var(--shadow-card);
   --dur: 0.18s; --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1); /* lands a little past, then home */
   color-scheme: light;
 }
 :root[data-theme="dark"] { color-scheme: dark; }
@@ -60,21 +62,27 @@ button.primary { background: var(--ink); color: var(--bg); border-color: var(--i
 #world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 #world.gliding { transition: transform 0.3s var(--ease); }
 #stage.gliding { transition: background-position 0.3s var(--ease), background-size 0.3s var(--ease); } /* the dots glide with the cards */
-#world.tidying .card { transition: left 0.35s var(--ease), top 0.35s var(--ease), box-shadow var(--dur) var(--ease); }
+#world.tidying .card { transition: left 0.35s var(--ease), top 0.35s var(--ease), box-shadow var(--dur) var(--ease), translate 0.2s var(--ease), scale 0.3s var(--spring); }
 #marquee { position: absolute; border: 1px solid var(--sel); background: color-mix(in srgb, var(--sel) 8%, transparent); border-radius: 2px; pointer-events: none; z-index: 3; }
 #empty { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; pointer-events: none; }
 
 /* ---------- a card ---------- */
-.card { position: absolute; width: var(--card-w); display: flex; flex-direction: column; background: var(--surface); border: var(--border-card); border-radius: var(--r-card); box-shadow: var(--shadow-card); user-select: none; -webkit-user-select: none; outline: none; transition: box-shadow var(--dur) var(--ease); }
-.card.selected { box-shadow: var(--ring-sel), var(--shadow-card); }
-.card.pointed { box-shadow: var(--ring-agent), var(--shadow-card); }
+/* A card turns and grows about the point it was last picked up by (--gx, --gy: see "the hand" in main.js). */
+.card { --shadow: var(--shadow-card); position: absolute; width: var(--card-w); display: flex; flex-direction: column; background: var(--surface); border: var(--border-card); border-radius: var(--r-card); box-shadow: var(--shadow); user-select: none; -webkit-user-select: none; outline: none; transform-origin: var(--gx, 50%) var(--gy, 50%); transition: box-shadow var(--dur) var(--ease), translate 0.2s var(--ease), scale 0.3s var(--spring); }
+.card.selected { box-shadow: var(--ring-sel), var(--shadow); }
+.card.pointed { box-shadow: var(--ring-agent), var(--shadow); }
 .card.selected.pointed { box-shadow: var(--ring-sel), 0 0 0 4px var(--surface), 0 0 0 6px var(--agent), 0 0 0 10px var(--agent-soft); }
-.card.dragging { z-index: 4; box-shadow: var(--ring-sel), var(--shadow-lift); cursor: grabbing; }
+/* Under the cursor a card rises a little; its photo leans toward the cursor (below). */
+.card.near:not(.fin):not(.dragging) { translate: 0 -2px; --shadow: var(--shadow-hover); }
+/* Picked up: nearer, so a touch larger, over everything, hanging from where it was taken. */
+.card.dragging { z-index: 9999 !important; scale: 1.03; box-shadow: var(--ring-sel), var(--shadow-lift); cursor: grabbing; }
 .card:focus-visible { outline: 2px solid var(--sel); outline-offset: 3px; }
 
 .photo { position: relative; margin: var(--photo-inset) var(--photo-inset) 0; aspect-ratio: var(--photo-ratio); background: var(--plate); border-radius: var(--r-photo); display: grid; place-items: center; overflow: hidden; }
 .card:not(.fin) > .photo { border-top-left-radius: max(var(--r-photo), calc(var(--r-card) - var(--photo-inset) - 1px)); border-top-right-radius: max(var(--r-photo), calc(var(--r-card) - var(--photo-inset) - 1px)); }
-.photo img { width: 100%; height: 100%; padding: var(--photo-pad); object-fit: contain; mix-blend-mode: var(--photo-blend); }
+.photo img { width: 100%; height: 100%; padding: var(--photo-pad); object-fit: contain; mix-blend-mode: var(--photo-blend); transition: translate 0.4s var(--ease), scale 0.4s var(--ease); }
+/* The one part of a card that moves by itself: the photo follows the cursor a few pixels. */
+.card.near:not(.dragging) .photo img { translate: calc(var(--mx, 0) * 5px) calc(var(--my, 0) * 4px); scale: 1.04; transition-duration: 0.15s, 0.4s; }
 .nophoto { color: var(--ink-3); font-size: var(--fs-small); }
 
 /* The body's children are laid out by the card, so a variant can reorder them.

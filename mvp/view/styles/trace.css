@@ -20,6 +20,7 @@
   --photo-inset: 6px; --photo-pad: 10px; --photo-blend: normal;
   --border-card: 1px solid #ffffffcc;
   --shadow-card: 0 1px 1px rgba(17, 19, 21, 0.04), 0 10px 30px rgba(17, 19, 21, 0.08);
+  --shadow-hover: 0 2px 2px rgba(17, 19, 21, 0.05), 0 16px 36px rgba(17, 19, 21, 0.13);
   --shadow-lift: 0 16px 40px rgba(17, 19, 21, 0.18);
   --ring-sel: 0 0 0 1.5px var(--sel);
   --ring-agent: 0 0 0 1.5px var(--agent), 0 0 0 5px var(--agent-soft);
@@ -34,7 +35,7 @@
   --sel: #eef0f1; --agent: #6f9bff; --agent-ink: #06122e; --agent-soft: #6f9bff33;
   --flag: #ff6b94; --wait-bg: #2a2f33; --wait-ink: #a2a9ae; --pop: #1e2225;
   --border-card: 1px solid #ffffff1a;
-  --shadow-card: 0 10px 30px rgba(0, 0, 0, 0.35); --shadow-lift: 0 18px 44px rgba(0, 0, 0, 0.6);
+  --shadow-card: 0 10px 30px rgba(0, 0, 0, 0.35); --shadow-hover: 0 14px 36px rgba(0, 0, 0, 0.48); --shadow-lift: 0 18px 44px rgba(0, 0, 0, 0.6);
 }
 
 /* Cards: frosted, with the store as a file name above the photo. */
