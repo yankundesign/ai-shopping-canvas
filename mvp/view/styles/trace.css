@@ -48,8 +48,10 @@
 :root[data-style="trace"] .credit { font-family: var(--font-num); font-size: 9.5px; }
 :root[data-style="trace"] .details { border-top-style: dashed; counter-reset: src; }
 /* Sources as small numbered dots after the value. They stay neutral: colour is kept for the finalists. */
-:root[data-style="trace"] .src { display: inline-grid; flex: none; place-items: center; width: 15px; height: 15px; margin-left: 5px; border-radius: 50%; background: color-mix(in srgb, var(--ink) 10%, transparent); color: var(--ink-2); font-size: 0; vertical-align: 1px; text-decoration: none !important; counter-increment: src; transition: background var(--dur), color var(--dur); }
-:root[data-style="trace"] .src::before { content: counter(src); font: 600 9px/1 var(--font-num); }
+/* Flex, not grid: the link's own text (hidden at size 0) would take a grid row and push the number up. */
+:root[data-style="trace"] .src { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 15px; height: 15px; margin-left: 5px; border-radius: 50%; background: color-mix(in srgb, var(--ink) 10%, transparent); color: var(--ink-2); font-size: 0; vertical-align: 1px; text-decoration: none !important; counter-increment: src; transition: background var(--dur), color var(--dur); }
+/* The box is trimmed to the digit itself (cap height to baseline), so the circle centers what you see. */
+:root[data-style="trace"] .src::before { content: counter(src); font: 600 9px/1 var(--font-num); text-box: trim-both cap alphabetic; }
 :root[data-style="trace"] a.src:hover { background: var(--ink); color: var(--bg); }
 :root[data-style="trace"] .card.fin .src { display: none; }
 /* A request waiting is a skeleton bar. */

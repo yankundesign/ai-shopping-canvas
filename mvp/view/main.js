@@ -673,7 +673,7 @@ function cardHtml(c, fin, arrived) {
       : "";
   // What only some cards have sits on the photo, so every card keeps the same height.
   const flag =
-    c.check === "dead_link" ? `<span class="flag" title="${esc(c.checkReason || "The store page didn't load")}">Dead link</span>`
+    c.check === "dead_link" ? `<span class="flag" title="${esc(c.checkReason || "The store page didn't load")}">Page not found</span>`
     : c.check === "bad_link" ? `<span class="flag">Not a usable link</span>`
     : "";
   const tags = (fin?.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join("");
