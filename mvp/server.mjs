@@ -173,9 +173,11 @@ function viewState(canvas, base) {
     style: canvas.style || DEFAULT_STYLE,
     dev: DEV_PANEL,
     imgBase: `${base}/img/`,
+    now: Date.now(), // the server's clock, so the view can tell a card made just now without trusting its own
     cards: canvas.cards.map((c) => ({
       id: c.id,
       kind: c.kind,
+      createdAt: c.createdAt,
       deleted: !!c.deleted,
       x: c.x ?? null,
       y: c.y ?? null,
@@ -661,7 +663,7 @@ function buildServer(base) {
     },
   );
 
-  viewTool("canvas_finalists", "The person's finalists, in their order", { canvas_id: z.string(), card_ids: Ids, how: z.enum(["compare", "drag", "remove", "clear", "undo"]).optional() }, (canvas, { card_ids, how }) => {
+  viewTool("canvas_finalists", "The person's finalists, in their order", { canvas_id: z.string(), card_ids: Ids, how: z.enum(["compare", "drag", "remove", "clear", "undo", "reorder"]).optional() }, (canvas, { card_ids, how }) => {
     const before = finalistIds(canvas);
     canvas.finalists = [...new Set(card_ids)].slice(0, MAX_FINALISTS);
     // A card joining the compare table asks for the specs the others already have;

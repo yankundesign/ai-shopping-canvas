@@ -317,17 +317,77 @@ function setFinalists(ids, how, moves = [], shift = true) {
 // Side by side, more than four won't fit beside a chat. Matches MAX_FINALISTS on the server.
 const MAX_FINALISTS = 4;
 
-function compare(ids) {
+/** at: where in the row the new finalists go (the slot they were dropped on); the end if not given. */
+function compare(ids, at) {
   const fin = finalistIds();
   const add = ids.filter((id) => isProduct(byId(id)) && !fin.includes(id));
   const room = MAX_FINALISTS - fin.length;
+  at = clamp(at ?? fin.length, 0, fin.length);
   if (add.length > room) setStatus(room > 0 ? `Up to ${MAX_FINALISTS} finalists side by side, so ${room} went in.` : `Up to ${MAX_FINALISTS} finalists side by side. Put one back first.`, "fin", 6000);
   if (add.length && room > 0) {
     // Comparing is asking to see the comparison, so a folded tray opens.
     finPanel.classList.remove("closed");
     $("#fin-toggle").setAttribute("aria-expanded", "true");
-    setFinalists([...fin, ...add.slice(0, room)], "compare");
+    setFinalists([...fin.slice(0, at), ...add.slice(0, room), ...fin.slice(at)], "compare");
   }
+}
+
+// --- the tray makes room ---
+// A card dragged over the finalists gets a slot where it would go: the others step aside.
+// A finalist dragged along the row changes places the same way.
+
+let slot = null; // { k, at }: k cards from the canvas would go in at index `at`
+const trayMoves = new WeakMap(); // element -> its stepping-aside animation
+
+/** Change the row inside `change`; whatever was there slides from where it was to where it is. */
+function reflowTray(change) {
+  const before = new Map([...finRow.children].map((el) => [el, el.getBoundingClientRect()]));
+  for (const el of before.keys()) trayMoves.get(el)?.cancel();
+  change();
+  if (calm()) return;
+  for (const el of finRow.children) {
+    const a = before.get(el);
+    const b = el.getBoundingClientRect();
+    if (!a?.width || !b.width || el.classList.contains("flying")) continue;
+    if (Math.abs(a.left - b.left) < 0.5 && Math.abs(a.top - b.top) < 0.5 && Math.abs(a.width - b.width) < 0.5) continue;
+    trayMoves.set(el, el.animate([{ transformOrigin: "0 0", transform: `translate(${a.left - b.left}px, ${a.top - b.top}px) scale(${a.width / b.width})` }, { transformOrigin: "0 0", transform: "none" }], { duration: 220, easing: EASE }));
+  }
+}
+
+/** Which column of the row the pointer is over, from 0, out of `count`. Null when the row isn't showing. */
+function trayColumn(x, count) {
+  const [first, second] = finRow.children;
+  if (!first?.offsetWidth) return null;
+  const pitch = second ? second.offsetLeft - first.offsetLeft : first.offsetWidth + 12;
+  const left = finRow.getBoundingClientRect().left + first.offsetLeft - finRow.offsetLeft;
+  return clamp(Math.floor((x - left + 6) / pitch), 0, count - 1);
+}
+
+const trayCards = () => [...finRow.children].filter((el) => el.classList.contains("card"));
+
+/** Open a slot for k cards at index `at`, move it, or (null) close it. */
+function setSlot(next, quietly) {
+  if (slot?.k === next?.k && slot?.at === next?.at) return;
+  const change = () => {
+    for (const el of finRow.querySelectorAll(".slot")) el.remove();
+    slot = next;
+    finPanel.classList.toggle("parting", !!slot);
+    if (!slot) return finRow.style.removeProperty("--fin-n");
+    const cards = trayCards();
+    for (let i = 0; i < slot.k; i++) finRow.insertBefore(Object.assign(document.createElement("div"), { className: "slot" }), cards[slot.at] || null);
+    finRow.style.setProperty("--fin-n", cards.length + slot.k);
+  };
+  quietly ? change() : reflowTray(change);
+}
+
+/** A finalist being dragged along the row takes the place it is over; outside the tray, its own again. */
+function reorderTo(g, x) {
+  const el = els.get(g.id).el;
+  const cards = trayCards();
+  const at = g.out ? g.index : trayColumn(x, cards.length);
+  if (at == null || cards.indexOf(el) === at) return;
+  const others = cards.filter((c) => c !== el);
+  reflowTray(() => finRow.insertBefore(el, others[at] || null));
 }
 
 /** Add specs: the person asks the agent for the specs that would decide between the finalists. */
@@ -384,22 +444,48 @@ function homeSpots(ids) {
   });
 }
 
-/** Back to the canvas: where the person dropped it, or onto its outline. */
+/** Back to the canvas: where the person dropped it, or, by ↓, into the tidied grid. */
 function removeFinalist(id, at) {
   if (!byId(id)) return;
-  const spot = at || homeSpots(finalistIds()).find((h) => h.id === id);
-  if (!spot) return;
-  // Dropped by hand, the card stays under the hand: the canvas doesn't shift then.
-  setFinalists(finalistIds().filter((f) => f !== id), "remove", [{ id, x: Math.round(spot.x), y: Math.round(spot.y) }], !at);
+  if (!at) return putBack([id], "remove");
+  // Dropped by hand, the card stays under the hand: the canvas doesn't shift or tidy then.
+  setFinalists(finalistIds().filter((f) => f !== id), "remove", [{ id, x: Math.round(at.x), y: Math.round(at.y) }], false);
 }
 
-/** Clear: every finalist goes back to the canvas, each onto its outline. Undo brings them back. */
+/** Clear: every finalist goes back to the canvas. */
 function clearFinalists() {
-  const ids = finalistIds();
+  putBack(finalistIds(), "clear");
+}
+
+/**
+ * Finalists go back to the canvas, and the canvas is tidied in the same move. Each one takes its
+ * place in the grid by where its outline was, so it comes back near where it left; the cards already
+ * there close up around it. One Undo brings them back up and puts every card where it was.
+ */
+function putBack(ids, how) {
+  const fin = finalistIds();
+  ids = ids.filter((id) => fin.includes(id));
   if (!ids.length) return;
-  const moves = homeSpots(ids).map(({ id, x, y }) => ({ id, x, y }));
-  undoStack.push({ finalists: ids, positions: ids.map((id) => ({ id, x: byId(id).x, y: byId(id).y })).filter((p) => p.x != null) });
-  setFinalists([], "clear", moves);
+  const stay = fin.filter((id) => !ids.includes(id));
+  const there = canvasCards().map(rectOf).filter(Boolean);
+  const rects = [...there, ...homeSpots(fin).filter((h) => ids.includes(h.id))];
+  const was = new Map(rects.map((r) => [r.id, r]));
+  // The grid is shaped for the canvas as it will be: without the tray when the last finalist goes.
+  // It starts at the top left of the cards already there, so it doesn't climb under the tray when
+  // an outline had been pushed above them.
+  // While finalists stay the zoom is kept, so the grid is no wider than the columns that fit at that zoom.
+  const fits = Math.max(1, Math.floor(((stage.clientWidth - 48) / cam.k + GAP_X) / (CARD_W + GAP_X)));
+  const spots = tidySpots(rects, stay.length ? undefined : { ...visibleArea(), t: 0 }, there.length ? there : rects, stay.length ? Math.min(6, fits) : undefined);
+  const others = spots.filter((p) => !ids.includes(p.id) && (was.get(p.id).x !== p.x || was.get(p.id).y !== p.y));
+  undoStack.push({
+    finalists: fin,
+    cam: { ...cam },
+    positions: [...ids.map((id) => ({ id, x: byId(id).x, y: byId(id).y })).filter((p) => p.x != null), ...others.map((p) => ({ id: p.id, x: was.get(p.id).x, y: was.get(p.id).y }))],
+  });
+  // With the tray gone the view fits the result, as after Tidy. While finalists stay, the view is left
+  // alone: there is little room under the tray, and fitting would shrink the cards on every ↓.
+  setFinalists(stay, how, [...spots.filter((p) => ids.includes(p.id)), ...others], stay.length ? true : "fit");
+  wave(others, was); // the finalists fly; the cards that make room for them slide
 }
 
 // ---------- flights ----------
@@ -413,7 +499,7 @@ const STAGGER_MS = 55; // between one card taking off and the next
 const flights = new Map(); // id -> { nodes, home } while a card is in the air
 const homes = new Map(); // id -> the outline's element
 let flyFrom = null; // id -> rect: a card let go by hand takes off from where it was dropped
-let trayShift = false; // the person just changed the finalists: keep the canvas clear of the tray
+let trayShift = false; // the person just changed the finalists: keep the canvas clear of the tray ("fit": fit the view to the cards instead; a camera: go back to it)
 let drawTimer = null;
 const calm = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 const still = () => calm() || document.hidden; // no flights: the person asked for none, or isn't looking
@@ -448,7 +534,7 @@ function copyOf(el) {
   n.setAttribute("aria-hidden", "true");
   n.querySelector(":scope > .point-chip")?.remove();
   Object.assign(n.style, { left: "", top: "", visibility: "", transform: "", rotate: "", zIndex: "", width: `${el.offsetWidth}px` });
-  for (const img of n.querySelectorAll("img")) Object.assign(img, { loading: "eager", decoding: "sync" });
+  for (const img of n.querySelectorAll("img")) Object.assign(img, { loading: "eager", decoding: "sync" }).classList.add("ready");
   return n;
 }
 
@@ -507,6 +593,7 @@ function fly(leaving, fin) {
     now.animate([{ opacity: 0 }, { opacity: 1 }], { ...timing, duration: FLIGHT_MS * 0.25 });
     old.animate([{ opacity: 1 }, { opacity: 0 }], { ...timing, duration: FLIGHT_MS * 0.5 });
     const flight = { nodes: [now, old], home };
+    if (!fin.includes(id)) ripple(id, false, timing.delay + FLIGHT_MS * LAND_AT);
     flights.set(id, flight);
     el.classList.add("flying");
     trip.finished.then(() => flights.get(id) === flight && endFlight(id)).catch(() => {});
@@ -596,6 +683,52 @@ function intoUndo(going) {
   $("#undo").animate([{ scale: 1 }, { scale: 1.14 }, { scale: 1 }], { duration: 260, delay: DELETE_MS - 80 + (going.length - 1) * 40, easing: "ease-out" });
 }
 
+// ---------- the grid answers ----------
+// Where a card lands, a ring of the canvas's dots lights up and spreads: in ink when the
+// person put it there, in the agent's colour when the agent did. The dots are the style's
+// (.ripple in its CSS); a style with no grid has nothing to light.
+
+const LAND_AT = 0.45; // how far into a flight the card first reaches its place
+
+function ripple(id, byAgent, delay = 0) {
+  if (still()) return;
+  setTimeout(() => {
+    const c = byId(id);
+    const r = c && !c.deleted && !finalistIds().includes(id) ? rectOf(c) : null;
+    const grid = getComputedStyle(stage);
+    if (!r || grid.backgroundImage === "none") return;
+    const s = toScreen(r);
+    const R = 330 * cam.k;
+    const left = (s.l + s.r) / 2 - R;
+    const top = (s.t + s.b) / 2 - R;
+    // Its dots sit exactly on the canvas's: same size, same offset, seen from its own corner.
+    const [gx, gy] = grid.backgroundPosition.split(" ").map(parseFloat);
+    const el = Object.assign(document.createElement("div"), { className: `ripple${byAgent ? " agent" : ""}` });
+    Object.assign(el.style, { left: `${left}px`, top: `${top}px`, width: `${2 * R}px`, height: `${2 * R}px`, backgroundSize: grid.backgroundSize, backgroundPosition: `${(gx || 0) - left}px ${(gy || 0) - top}px` });
+    stage.insertBefore(el, world); // under the cards: the ring comes out from behind the one that landed
+    const end = () => el.remove();
+    // The ring spreads fast and slows; it stays lit for the first half, then dims.
+    el.animate([{ "--rr": `${100 * cam.k}px` }, { "--rr": `${R}px` }], { duration: 900, easing: "cubic-bezier(0.3, 0.6, 0.4, 1)" }).finished.then(end, end);
+    el.animate([{ opacity: 1 }, { opacity: 1, offset: 0.45 }, { opacity: 0 }], { duration: 900, fill: "forwards" });
+  }, delay);
+}
+
+/** One copy of a card flies in from a small start at `spot` to where the card is (`to`), growing as it comes. */
+function flyIn(id, spot, to, small, delay, byAgent = false) {
+  ripple(id, byAgent, delay + FLIGHT_MS * LAND_AT);
+  const el = els.get(id).el;
+  const from = { left: spot.x - (to.width * small) / 2, top: spot.y - (to.height * small) / 2, width: to.width * small };
+  const now = copyOf(el);
+  const timing = { duration: FLIGHT_MS, delay, fill: "both", easing: "linear" };
+  document.body.append(now);
+  const trip = now.animate(flightFrames(from, to, parseFloat(now.style.width), clamp((to.left - from.left) / 240, -1, 1) * 2.5), timing);
+  now.animate([{ opacity: 0 }, { opacity: 1 }], { ...timing, duration: FLIGHT_MS * 0.25 });
+  const flight = { nodes: [now], home: null };
+  flights.set(id, flight);
+  el.classList.add("flying");
+  trip.finished.then(() => flights.get(id) === flight && endFlight(id)).catch(() => {});
+}
+
 function outOfUndo(ids, spot) {
   if (!spot) return;
   let i = 0;
@@ -605,27 +738,78 @@ function outOfUndo(ids, spot) {
     entry.landed = 0; // it flies in, so it doesn't also fade in
     entry.el.classList.remove("landed");
     const to = entry.el.getBoundingClientRect();
-    if (!to.width) continue;
-    const from = { left: spot.x - (to.width * SPECK) / 2, top: spot.y - (to.height * SPECK) / 2, width: to.width * SPECK };
-    const now = copyOf(entry.el);
-    const timing = { duration: FLIGHT_MS, delay: i++ * STAGGER_MS, fill: "both", easing: "linear" };
-    document.body.append(now);
-    const trip = now.animate(flightFrames(from, to, parseFloat(now.style.width), clamp((to.left - from.left) / 240, -1, 1) * 2.5), timing);
-    now.animate([{ opacity: 0 }, { opacity: 1 }], { ...timing, duration: FLIGHT_MS * 0.25 });
-    const flight = { nodes: [now], home: null };
-    flights.set(id, flight);
-    entry.el.classList.add("flying");
-    trip.finished.then(() => flights.get(id) === flight && endFlight(id)).catch(() => {});
+    if (to.width) flyIn(id, spot, to, SPECK, i++ * STAGGER_MS);
   }
 }
+
+// ---------- arrival ----------
+// New cards are dealt onto the canvas one after another: the agent's from its corner (bottom
+// middle, where its note shows), a card the person asked for from the + Card button. A card
+// that arrives out of sight waits there unseen and is dealt when the person gets to it, so
+// an arrival is always something they watch.
+
+const arriving = new Set(); // ids of cards not dealt yet
+let comingBack = null; // ids an Undo is restoring: they come out of the Undo button instead
+const DEAL_MS = 60; // between one card and the next
+const DEAL_SMALL = 0.3; // how small a card starts
+const NEW_FOR = 30e3; // on opening a canvas, cards made in the last half minute are dealt too
+
+function dealFrom(c) {
+  const add = c.kind === "request" ? $("#add-card").getBoundingClientRect() : null;
+  if (add?.width) return { x: add.left + add.width / 2, y: add.top + add.height / 2 };
+  const sr = stage.getBoundingClientRect();
+  const v = visibleArea();
+  return { x: sr.left + (v.l + v.r) / 2, y: sr.top + v.b - 86 };
+}
+
+function deal() {
+  if (!arriving.size || drag) return; // nothing lands while the person is dragging
+  if (document.hidden && !calm()) return; // dealt when they are back
+  const sr = stage.getBoundingClientRect();
+  const v = visibleArea();
+  const fin = finalistIds();
+  const due = [];
+  for (const id of arriving) {
+    const c = byId(id);
+    const el = els.get(id)?.el;
+    const r = el && c && !c.deleted && !fin.includes(id) ? rectOf(c) : null;
+    if (!el?.isConnected || !c || c.deleted || fin.includes(id) || calm()) {
+      arriving.delete(id);
+      el?.classList.remove("arriving");
+      continue;
+    }
+    if (!r) continue; // not placed yet
+    // In sight means at least half of it showing, like the "new cards" marker, or as much
+    // of it as a short view can hold: a sliver at the edge would be dealt where no one sees.
+    const s = toScreen(r);
+    const w = Math.min(s.r, v.r) - Math.max(s.l, v.l);
+    const h = Math.min(s.b, v.b) - Math.max(s.t, v.t);
+    if (w > 0 && h > 0 && ((w * h) / ((s.r - s.l) * (s.b - s.t)) >= 0.5 || h >= (v.b - v.t) * 0.6)) due.push({ id, c, el, s });
+  }
+  due.sort((a, b) => a.s.t - b.s.t || a.s.l - b.s.l);
+  const step = Math.min(DEAL_MS, 600 / due.length); // however many, the last sets off within 0.6 s
+  due.forEach(({ id, c, el, s }, i) => {
+    arriving.delete(id);
+    el.classList.remove("arriving");
+    // Worked out, not measured: the canvas may be gliding, and the card lands where it will be.
+    flyIn(id, dealFrom(c), { left: sr.left + s.l, top: sr.top + s.t, width: s.r - s.l, height: s.b - s.t }, DEAL_SMALL, i * step, c.kind === "product");
+  });
+}
+document.addEventListener("visibilitychange", deal);
 
 function undo() {
   const last = undoStack.pop();
   if (!last) return;
-  if (last.finalists) return setFinalists(last.finalists, "undo", last.positions);
+  if (last.finalists) {
+    // Undo of a Clear or a ↓: the finalists fly back up, and the cards that were tidied slide back.
+    const was = new Map(last.positions.map((p) => [p.id, { x: byId(p.id)?.x, y: byId(p.id)?.y }]));
+    setFinalists(last.finalists, "undo", last.positions, last.cam || true);
+    return wave(last.positions.filter((p) => !last.finalists.includes(p.id)), was);
+  }
   if (last.positions) return moveCards(last.positions, "Couldn't undo");
   const finalists = [...finalistIds(), ...last.wereFinalists];
   const spot = still() ? null : undoSpot(); // before the button goes, if this was the last thing to undo
+  comingBack = new Set(last.ids);
   optimistic(
     (s) => {
       s.cards.forEach((c) => last.ids.includes(c.id) && (c.deleted = false));
@@ -634,6 +818,7 @@ function undo() {
     async () => (await call("canvas_restore", { card_ids: last.ids, finalists })).version,
     "Couldn't undo",
   );
+  comingBack = null;
   outOfUndo(last.ids, spot);
 }
 
@@ -679,6 +864,7 @@ function applyCamera() {
   $("#zoom-level").textContent = `${Math.round(cam.k * 100)}%`;
   updateInView();
   renderMarkers();
+  deal(); // cards waiting out of sight are dealt as they come into view
 }
 
 let glideTimer = null;
@@ -770,10 +956,9 @@ function placeCards(unplaced) {
 }
 
 /** How many columns a grid of n cards gets, from the shape of the part of the stage in sight. */
-function gridCols(n) {
-  const v = visibleArea();
+function gridCols(n, v = visibleArea(), most = 6) {
   const aspect = (v.r - v.l) / Math.max(240, v.b - v.t);
-  const cols = clamp(Math.round(Math.sqrt(n * aspect * 1.5)), 1, 6);
+  const cols = clamp(Math.round(Math.sqrt(n * aspect * 1.5)), 1, most);
   return Math.ceil(n / Math.ceil(n / cols)); // rows as even as they can be: 4 + 3, not 5 + 2
 }
 
@@ -781,6 +966,15 @@ function gridCols(n) {
 function tidy() {
   const rects = canvasCards().map(rectOf).filter(Boolean);
   if (!rects.length) return;
+  const positions = tidySpots(rects);
+  const was = new Map(rects.map((r) => [r.id, r]));
+  if (positions.every((p) => was.get(p.id).x === p.x && was.get(p.id).y === p.y)) return glide(), fit();
+  undoStack.push({ positions: rects.map(({ id, x, y }) => ({ id, x, y })) });
+  moveCards(positions, "Couldn't tidy");
+}
+
+/** Where Tidy puts each of these cards. `area` is the part of the stage the grid is shaped for. */
+function tidySpots(rects, area, anchor = rects, most) {
   // Cards whose tops are within half a card of each other count as one row.
   const rows = [];
   for (const r of [...rects].sort((a, b) => a.y - b.y)) {
@@ -789,9 +983,9 @@ function tidy() {
     else rows.push([r]);
   }
   const order = rows.flatMap((row) => row.sort((a, b) => a.x - b.x));
-  const cols = gridCols(order.length);
-  const x0 = Math.min(...rects.map((r) => r.x));
-  const y0 = Math.min(...rects.map((r) => r.y));
+  const cols = gridCols(order.length, area, most);
+  const x0 = Math.min(...anchor.map((r) => r.x));
+  const y0 = Math.min(...anchor.map((r) => r.y));
   const positions = [];
   let y = y0;
   for (let i = 0; i < order.length; i += cols) {
@@ -799,10 +993,7 @@ function tidy() {
     row.forEach((r, j) => positions.push({ id: r.id, x: x0 + j * (CARD_W + GAP_X), y }));
     y += Math.max(...row.map((r) => r.h)) + GAP_Y;
   }
-  const was = new Map(rects.map((r) => [r.id, r]));
-  if (positions.every((p) => was.get(p.id).x === p.x && was.get(p.id).y === p.y)) return glide(), fit();
-  undoStack.push({ positions: rects.map(({ id, x, y }) => ({ id, x, y })) });
-  moveCards(positions, "Couldn't tidy");
+  return positions;
 }
 
 /**
@@ -927,9 +1118,14 @@ function cardHtml(c, fin, arrived) {
   if (c.kind === "request") {
     return `<div class="req"><div class="hint">${esc(c.hint)}</div><div class="wait">waiting for ${esc(agent)}</div></div>`;
   }
+  // No photo: the plate steps back and carries the name's first letter, so it reads as a gap
+  // and not as a white picture. While the store page is being read, it shimmers like a request.
+  const plate = c.photo ? "" : c.check === "checking" ? " reading" : " empty";
   const photo = c.photo
     ? `<img src="${esc(photoUrl(c))}" alt="" loading="lazy" draggable="false">`
-    : `<span class="nophoto">${c.check === "checking" ? "Reading the store page…" : "No photo"}</span>`;
+    : c.check === "checking"
+      ? `<span class="nophoto">Reading the store page…</span>`
+      : `<span class="initial" aria-hidden="true">${esc((c.name || c.store || "").trim().charAt(0).toUpperCase())}</span><span class="nophoto">No photo</span>`;
   // A price read from the store page says so. The agent's word gets no label: it's the default.
   const priceMeta =
     c.price?.from === "page"
@@ -951,7 +1147,7 @@ function cardHtml(c, fin, arrived) {
   const names = fin ? [] : (state.detailOrder || []).filter((n) => state.detailScope?.[n] !== "finalists");
   const details = names.map((n) => detailHtml(n, c.details?.[n], arrived?.has(n))).join("");
   return `
-    <div class="photo">${photo}${tags || flag ? `<div class="badges">${tags}${flag}</div>` : ""}${credit}</div>
+    <div class="photo${plate}">${photo}${tags || flag ? `<div class="badges">${tags}${flag}</div>` : ""}${credit}</div>
     <div class="body">
       <div class="store">${esc(c.store || urlHost(c.link) || "")}</div>
       <div class="name"><span>${esc(c.name)}</span></div>
@@ -1035,27 +1231,38 @@ function render() {
       el.dataset.id = c.id;
       el.tabIndex = 0;
       el.style.setProperty("--i", Number(c.id.replace(/\D/g, "")) % 6); // lets a variant vary cards (a tint per card, say)
-      entry = { el, json: "", landed: loadedOnce ? Date.now() + 1500 : 0 };
+      entry = { el, json: "", landed: 0 };
       els.set(c.id, entry);
+      // New since the canvas opened, or made just before it did: it is dealt in (see "arrival").
+      if (!inFin && !comingBack?.has(c.id) && (loadedOnce || (state.now || 0) - (c.createdAt || 0) < NEW_FOR)) arriving.add(c.id);
     }
     if (entry.json !== json) {
       // An answer that just arrived shows it: this is how a person learns what a request does.
       const was = entry.states || {};
       const arrived = new Set(Object.entries(c.details || {}).filter(([n, d]) => was[n] === "waiting" && d.state !== "waiting").map(([n]) => n));
-      if (entry.kind === "request" && c.kind === "product") entry.landed = Date.now() + 1500;
+      if (entry.kind === "request" && c.kind === "product") {
+        // The answer to a request: the product blooms in where the empty card waited, and the grid answers in the agent's colour.
+        entry.landed = Date.now() + 1800;
+        if (!inFin) ripple(c.id, true);
+      }
       entry.el.innerHTML = cardHtml(c, ctx, arrived);
+      // A photo the browser already has shows at once; one still on its way fades in when it lands.
+      for (const img of entry.el.querySelectorAll(".photo img")) if (img.complete && img.naturalWidth) img.classList.add("ready");
       entry.states = Object.fromEntries(Object.entries(c.details || {}).map(([n, d]) => [n, d.state]));
       entry.kind = c.kind;
       entry.json = json;
     }
-    entry.el.className = `card ${c.kind}${inFin ? " fin" : ""}${drag?.ids.includes(c.id) ? " dragging" : ""}${entry.landed > Date.now() ? " landed" : ""}${flights.has(c.id) ? " flying" : ""}${near === entry.el ? " near" : ""}`;
+    entry.el.className = `card ${c.kind}${inFin ? " fin" : ""}${drag?.ids.includes(c.id) ? " dragging" : ""}${entry.landed > Date.now() ? " landed" : ""}${flights.has(c.id) ? " flying" : ""}${near === entry.el ? " near" : ""}${arriving.has(c.id) ? " arriving" : ""}`;
     if (inFin) entry.el.dataset.n = fin.indexOf(c.id) + 1;
     else delete entry.el.dataset.n;
     if (!inFin && entry.el.parentNode !== world) world.append(entry.el);
   }
+  // While the row is parted for a card in the hand, its order is the hand's: leave it.
+  const parted = !!slot || (gesture?.type === "finalist" && gesture.moved);
   fin.forEach((id, i) => {
     const el = els.get(id).el;
-    if (finRow.children[i] !== el) finRow.insertBefore(el, finRow.children[i] || null);
+    if (!parted && finRow.children[i] !== el) finRow.insertBefore(el, finRow.children[i] || null);
+    else if (el.parentNode !== finRow) finRow.append(el);
     el.style.left = el.style.top = "";
   });
   finPanel.hidden = fin.length === 0;
@@ -1084,6 +1291,9 @@ function render() {
     const el = els.get(c.id).el;
     el.style.left = `${r?.x ?? 0}px`;
     el.style.top = `${r?.y ?? 0}px`;
+    // Where it is on the grid, so a style can light the dots under it in step with the canvas's.
+    el.style.setProperty("--wx", `${r?.x ?? 0}px`);
+    el.style.setProperty("--wy", `${r?.y ?? 0}px`);
   }
   renderSelection();
   renderPointer();
@@ -1096,7 +1306,15 @@ function render() {
     // The tray takes its room from the top, so the canvas moves down by as much, and back
     // up when the tray goes. Only when the person changed the finalists: never under them.
     const by = visibleArea().t - tray.bottom;
-    if (trayShift && by && !tray.full && !finPanel.classList.contains("full")) {
+    if (trayShift === "fit") {
+      // Clear or ↓ tidied the canvas: the view fits the result, as it does after Tidy.
+      if (!calm()) glide();
+      fit();
+    } else if (trayShift?.k) {
+      // Undo of that: the view goes back to where it was too.
+      Object.assign(cam, trayShift);
+      if (!calm()) glide();
+    } else if (trayShift && by && !tray.full && !finPanel.classList.contains("full")) {
       cam.y += by;
       if (!calm()) glide();
     }
@@ -1105,7 +1323,7 @@ function render() {
   trayShift = false;
   if (leaving.size) {
     fly(leaving, fin);
-    if (tray.hidden && !finPanel.hidden) finPanel.animate([{ opacity: 0, transform: "translateY(-8px)" }, { opacity: 1, transform: "none" }], { duration: 260, easing: "cubic-bezier(0.2, 0.7, 0.2, 1)" });
+    if (tray.hidden && !finPanel.hidden) finPanel.animate([{ opacity: 0, transform: "translateY(-8px)" }, { opacity: 1, transform: "none" }], { duration: 260, easing: EASE });
     if (!tray.hidden && finPanel.hidden) fadeTray({ ...tray, radius: getComputedStyle(finPanel).borderRadius });
     if ([...leaving.keys()].some((id) => fin.includes(id))) {
       // The rows draw in under the cards as they land.
@@ -1179,7 +1397,26 @@ function renderMarkers() {
     .join("");
 }
 
+const EASE = "cubic-bezier(0.2, 0.7, 0.2, 1)"; // --ease in base.css
+let dockMove = null;
+
+/** The dock grows and shrinks to fit its buttons instead of jumping, and a button that appears fades in. */
+function settleDock(was, shownWas) {
+  const dock = $("#dock");
+  dockMove?.cancel();
+  const now = dock.offsetWidth;
+  if (!was || now === was || still()) return;
+  const fresh = [...dock.children].filter((b) => !b.hidden && !shownWas.has(b));
+  // In a microtask: whoever asked for this render may still measure the dock as it will be (undoSpot does).
+  queueMicrotask(() => {
+    dockMove = dock.animate([{ width: `${was}px`, overflow: "hidden" }, { width: `${now}px`, overflow: "hidden" }], { duration: 240, easing: EASE });
+    for (const b of fresh) b.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 240, delay: 60, fill: "backwards" });
+  });
+}
+
 function renderBar() {
+  const dockWas = $("#dock").offsetWidth;
+  const shownWas = new Set([...$("#dock").children].filter((b) => !b.hidden));
   const n = [...selection].filter((id) => byId(id) && !byId(id).deleted).length;
   const view = live().filter((c) => inView.has(c.id)).length;
   $("#scope").textContent = !state ? "" : n ? `${n} selected` : `${view} in view`;
@@ -1188,6 +1425,7 @@ function renderBar() {
   $("#trash").hidden = n === 0;
   $("#undo").hidden = undoStack.length === 0;
   $("#dock-sep").hidden = !canCompare && n === 0 && undoStack.length === 0;
+  settleDock(dockWas, shownWas);
   const waiting = state ? waitingRequests() : [];
   const unsent = waiting.filter((i) => !sentWaiting.has(i.key));
   $("#waiting").hidden = !waiting.length;
@@ -1264,10 +1502,14 @@ document.addEventListener("click", (e) => {
 document.addEventListener(
   "error",
   (e) => {
-    if (e.target.tagName === "IMG" && e.target.closest(".photo")) e.target.replaceWith(Object.assign(document.createElement("span"), { className: "nophoto", textContent: "Photo didn't load" }));
+    if (e.target.tagName !== "IMG" || !e.target.closest(".photo")) return;
+    e.target.closest(".photo").classList.add("empty");
+    e.target.replaceWith(Object.assign(document.createElement("span"), { className: "nophoto", textContent: "Photo didn't load" }));
   },
   true,
 );
+// Until a photo has loaded, its plate shimmers (see .photo in base.css).
+document.addEventListener("load", (e) => e.target.tagName === "IMG" && e.target.closest(".photo") && e.target.classList.add("ready"), true);
 
 // A name cut short shows in full on hover. Measured then, since a finalist's width changes with the panel.
 stage.addEventListener("mouseover", (e) => {
@@ -1276,27 +1518,22 @@ stage.addEventListener("mouseover", (e) => {
 });
 
 // --- the hand: a card answers the cursor ---
-// Under the cursor it rises and its photo leans toward the cursor. Picked up, it hangs from
-// where it was taken, swings behind the hand, and swings to rest when let go. The text on a
-// card never moves by itself: only the photo does, and the card as a whole.
+// Under the cursor it rises. Picked up, it hangs from where it was taken, swings behind the
+// hand, and swings to rest when let go. Nothing on a card moves by itself: the card moves
+// as a whole.
 
 let near = null; // the card under the cursor
 let zTop = 0; // a card put down stays on top of what it was put on
 
-function setNear(el, e) {
-  if (near !== el) {
-    near?.classList.remove("near");
-    near = el;
-    near?.classList.add("near");
-  }
-  if (!el) return;
-  const r = el.getBoundingClientRect();
-  el.style.setProperty("--mx", clamp(((e.clientX - r.left) / r.width) * 2 - 1, -1, 1).toFixed(2));
-  el.style.setProperty("--my", clamp(((e.clientY - r.top) / r.height) * 2 - 1, -1, 1).toFixed(2));
+function setNear(el) {
+  if (near === el) return;
+  near?.classList.remove("near");
+  near = el;
+  near?.classList.add("near");
 }
 
 const SWING = { stiffness: 230, damping: 18, perSpeed: 6, most: 7 }; // perSpeed: degrees per px/ms; most: the furthest it leans
-const swings = new Map(); // el -> { rot, vel, held, sign }
+const swings = new Map(); // el -> { rot, vel, held, sign, fan, lean }
 let pull = 0; // how far the hand's speed pulls a held card over, in degrees
 let pulledAt = 0; // when the hand last moved
 let swingAt = 0;
@@ -1309,10 +1546,11 @@ function swingTick(now) {
     const target = s.held ? s.sign * pull : 0;
     s.vel += (SWING.stiffness * (target - s.rot) - SWING.damping * s.vel) * dt;
     s.rot += s.vel * dt;
-    if (!s.held && Math.abs(s.rot) < 0.03 && Math.abs(s.vel) < 0.6) {
+    s.lean += (s.fan - s.lean) * (1 - Math.exp(-dt * 14)); // its angle in a stack, eased
+    if (!s.held && Math.abs(s.rot) < 0.03 && Math.abs(s.vel) < 0.6 && Math.abs(s.lean) < 0.05) {
       el.style.rotate = "";
       swings.delete(el);
-    } else el.style.rotate = `${s.rot.toFixed(2)}deg`;
+    } else el.style.rotate = `${(s.rot + s.lean).toFixed(2)}deg`;
   }
   if (now - pulledAt > 50) pull *= Math.exp(-dt * 14); // a hand that stops lets the card hang level
   swingFrame = swings.size ? requestAnimationFrame(swingTick) : 0;
@@ -1324,7 +1562,7 @@ function hold(el, fx, fy) {
   el.style.setProperty("--gy", `${(fy * 100).toFixed(1)}%`);
   if (calm()) return;
   const lever = (0.5 - fy) * 2;
-  swings.set(el, { rot: swings.get(el)?.rot || 0, vel: 0, held: true, sign: (lever < 0 ? -1 : 1) * Math.max(Math.abs(lever), 0.4) });
+  swings.set(el, { rot: swings.get(el)?.rot || 0, vel: 0, held: true, sign: (lever < 0 ? -1 : 1) * Math.max(Math.abs(lever), 0.4), fan: 0, lean: swings.get(el)?.lean || 0 });
   if (!swingFrame) {
     swingAt = performance.now();
     swingFrame = requestAnimationFrame(swingTick);
@@ -1336,10 +1574,66 @@ function release(el, atOnce) {
   const s = swings.get(el);
   if (!s) return;
   s.held = false;
+  s.fan = 0;
   if (atOnce) {
     el.style.rotate = "";
     swings.delete(el);
   }
+}
+
+// --- the stack: several cards in the hand gather into a fan ---
+// Over the finalists the cards in the hand go in together, so they come together: the others slide
+// under the one that was taken and fan out behind it. Back over the canvas they spread out again,
+// because there each card's place is what the person is arranging. "pickup" gathers them from the
+// moment they are taken instead, and spreads them where they are dropped.
+
+const GATHER = "tray"; // "tray" | "pickup"
+const FAN = { deg: 6, more: 4, dx: 22, dy: 6, tiers: 3 }; // each pair behind leans and steps out a little further
+
+/** Where the j-th card of a stack sits, from the one on top (j = 0): behind it, to one side then the other. */
+function fanOf(j) {
+  if (!j) return { x: 0, y: 0, rot: 0 };
+  const side = j % 2 ? -1 : 1;
+  const tier = Math.min(Math.ceil(j / 2), FAN.tiers);
+  return { x: side * FAN.dx * tier, y: FAN.dy * tier, rot: side * (FAN.deg + FAN.more * (tier - 1)) };
+}
+
+/** Gathers the cards in the hand under the one that was taken, or lets them spread back out. */
+function setStack(on, atOnce) {
+  if (!drag || !!drag.stack === on || calm()) return;
+  // Only products can be finalists, so over the tray only they gather. The card that was taken is on top.
+  const ids = !on ? [] : GATHER === "pickup" ? drag.ids : drag.ids.filter((id) => isProduct(byId(id)));
+  if (on && ids.length < 2) return;
+  const order = [...ids].sort((a, b) => (b === drag.anchor) - (a === drag.anchor));
+  const a = drag.start.get(drag.anchor);
+  const was = drag.stack;
+  drag.stack = on ? new Map(order.map((id, j) => [id, { ...fanOf(j), dx: a.x - drag.start.get(id).x, dy: a.y - drag.start.get(id).y, j, z: els.get(id).el.style.zIndex }])) : null;
+  for (const id of drag.ids) {
+    const el = els.get(id).el;
+    const o = drag.stack?.get(id);
+    if (atOnce) el.style.transition = "none"; // it is about to fly: its place must not still be sliding
+    el.style.translate = o ? `${o.dx + o.x}px ${o.dy + o.y}px` : "";
+    if (o) el.style.setProperty("z-index", 10000 - o.j, "important");
+    else if (was?.has(id)) {
+      el.style.removeProperty("z-index");
+      el.style.zIndex = was.get(id).z;
+    }
+    if (atOnce) {
+      void el.offsetWidth;
+      el.style.transition = "";
+    }
+    const s = swings.get(el);
+    if (s) s.fan = o ? o.rot : 0;
+  }
+}
+
+/** Where a card in the hand is on the screen, its place in the stack included, before any swing. */
+function handRect(id, stacked = true) {
+  const sr = stage.getBoundingClientRect();
+  const r = rectOf(byId(id));
+  const o = stacked ? drag.stack?.get(id) : null;
+  const s = toScreen({ ...r, x: r.x + (o ? o.dx + o.x : 0), y: r.y + (o ? o.dy + o.y : 0) });
+  return { left: sr.left + s.l, top: sr.top + s.t, width: s.r - s.l, height: s.b - s.t };
 }
 
 // --- pointer gestures on the stage: pan, marquee, click, drag cards, drag finalists out ---
@@ -1375,17 +1669,19 @@ function beginDrag(g) {
     // A selected card brings the rest of the selection along; any other card moves alone.
     // Dragging never changes what is selected, so rearranging keeps a selection the person built.
     const ids = selection.has(g.id) ? canvasCards().filter((c) => selection.has(c.id) && c.x != null).map((c) => c.id) : [g.id];
-    drag = { ids, start: new Map(ids.map((id) => [id, { x: byId(id).x, y: byId(id).y }])), pos: new Map(), at: { x: g.sx, t: performance.now() } };
+    drag = { ids, anchor: g.id, stack: null, start: new Map(ids.map((id) => [id, { x: byId(id).x, y: byId(id).y }])), pos: new Map(), at: { x: g.sx, t: performance.now() } };
     pull = 0;
     // Every card in the hand hangs from the same point as the one that was taken.
     const r = els.get(g.id).el.getBoundingClientRect();
     const fx = clamp((g.sx - r.left) / r.width, 0, 1);
     const fy = clamp((g.sy - r.top) / r.height, 0, 1);
+    drag.grip = { fx, fy };
     for (const id of ids) {
       const el = els.get(id).el;
       el.classList.add("dragging");
       hold(el, fx, fy);
     }
+    if (GATHER === "pickup") setStack(true);
     if (finPanel.hidden && ids.some((id) => isProduct(byId(id)))) $("#drop-hint").hidden = false;
   } else if (g.type === "finalist") {
     const el = els.get(g.id).el;
@@ -1396,8 +1692,10 @@ function beginDrag(g) {
     Object.assign(g.ghost.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px` });
     g.ox = r.left - g.sx;
     g.oy = r.top - g.sy;
+    g.index = trayCards().indexOf(el);
     document.body.append(g.ghost);
     el.classList.add("lifted");
+    finPanel.classList.add("parting");
   } else if (g.type === "marquee") {
     g.base = new Set(g.additive ? selection : []);
     $("#marquee").hidden = false;
@@ -1412,20 +1710,30 @@ function showDropGhosts(over) {
   const ids = over ? drag.ids.filter((id) => isProduct(byId(id))) : [];
   if (!ids.length) return clearDropGhosts();
   drag.ghosts ||= new Map();
+  // The copies fade as one, so a stack doesn't show each card through the one above it.
+  drag.ghostBox ||= document.body.appendChild(Object.assign(document.createElement("div"), { className: "drop-ghosts" }));
   for (const id of ids) {
     const el = els.get(id).el;
     let ghost = drag.ghosts.get(id);
-    if (!ghost) {
+    // The copy turns about the point the card hangs from, like the card, so a stack fans from the hand.
+    const gx = drag.grip.fx * el.offsetWidth;
+    const gy = drag.grip.fy * el.offsetHeight;
+    const fresh = !ghost;
+    if (fresh) {
       ghost = el.cloneNode(true);
       ghost.classList.remove("selected", "dragging", "landed", "near");
       ghost.classList.add("drop-ghost");
-      ghost.style.rotate = "";
-      document.body.append(ghost);
+      ghost.style.removeProperty("z-index");
+      Object.assign(ghost.style, { rotate: "0deg", translate: "0px 0px", transformOrigin: `${gx}px ${gy}px` });
+      drag.ghostBox.append(ghost);
       drag.ghosts.set(id, ghost);
       el.style.visibility = "hidden";
     }
-    const r = el.getBoundingClientRect();
-    Object.assign(ghost.style, { left: `${r.left}px`, top: `${r.top}px`, transform: `scale(${cam.k})` });
+    const r = handRect(id, false);
+    const o = drag.stack?.get(id);
+    Object.assign(ghost.style, { left: `${r.left - gx * (1 - cam.k)}px`, top: `${r.top - gy * (1 - cam.k)}px`, scale: cam.k });
+    if (fresh) void ghost.offsetWidth; // so it slides into the stack from where the card was
+    Object.assign(ghost.style, { translate: o ? `${(o.dx + o.x) * cam.k}px ${(o.dy + o.y) * cam.k}px` : "0px 0px", rotate: `${o?.rot || 0}deg`, zIndex: 60 - (o?.j || 0) });
   }
 }
 
@@ -1436,7 +1744,8 @@ function clearDropGhosts() {
     const el = els.get(id)?.el;
     if (el) el.style.visibility = "";
   }
-  drag.ghosts = null;
+  drag.ghostBox.remove();
+  drag.ghosts = drag.ghostBox = null;
 }
 
 stage.addEventListener("pointermove", (e) => {
@@ -1472,12 +1781,19 @@ stage.addEventListener("pointermove", (e) => {
     const over = inZone(e, dropZone());
     finPanel.classList.toggle("over", over);
     $("#drop-hint").classList.toggle("over", over);
+    setStack(GATHER === "pickup" || over);
     showDropGhosts(over);
+    // Over the finalists, they step aside where the card would go.
+    const fin = finalistIds();
+    const k = Math.min(drag.ids.filter((id) => isProduct(byId(id))).length, MAX_FINALISTS - fin.length);
+    const at = over && k > 0 && !finPanel.hidden ? trayColumn(e.clientX, trayCards().length + 1) : null;
+    setSlot(at == null ? null : { k, at });
   } else if (g.type === "finalist") {
     g.ghost.style.left = `${e.clientX + g.ox}px`;
     g.ghost.style.top = `${e.clientY + g.oy}px`;
     g.out = !inZone(e, finPanel.getBoundingClientRect());
     g.ghost.classList.toggle("out", g.out);
+    reorderTo(g, e.clientX);
   } else if (g.type === "marquee") {
     const sr = stage.getBoundingClientRect();
     const box = { l: Math.min(g.sx, e.clientX), t: Math.min(g.sy, e.clientY), r: Math.max(g.sx, e.clientX), b: Math.max(g.sy, e.clientY) };
@@ -1512,7 +1828,8 @@ function endGesture(e, cancelled) {
     const d = drag;
     const toFinalists = !cancelled && inZone(e, dropZoneAt(g));
     // Dropped on the finalists, a card flies in from where it was let go.
-    if (toFinalists) flyFrom = new Map(d.ids.map((id) => [id, els.get(id).el.getBoundingClientRect()]));
+    if (toFinalists) flyFrom = new Map(d.ids.map((id) => [id, handRect(id)]));
+    setStack(false, toFinalists);
     clearDropGhosts();
     drag = null;
     for (const id of d.ids) {
@@ -1521,22 +1838,42 @@ function endGesture(e, cancelled) {
       release(el, cancelled || toFinalists);
       if (!cancelled && !toFinalists) el.style.zIndex = ++zTop; // what was put down last is on top
     }
+    const at = slot?.at;
     if (cancelled || toFinalists || !d.pos.size) {
-      render(); // back where they were
-      if (toFinalists) compare(d.ids);
+      // The slot closes and the cards land in it in one go, so the finalists that stepped aside stay put.
+      reflowTray(() => {
+        setSlot(null, true);
+        render(); // back where they were
+        if (toFinalists) compare(d.ids, at);
+      });
       flyFrom = null;
     } else {
+      setSlot(null);
       const positions = d.ids.map((id) => ({ id, x: Math.round(d.pos.get(id).x), y: Math.round(d.pos.get(id).y) }));
       optimistic(
         (s) => positions.forEach((p) => Object.assign(s.cards.find((c) => c.id === p.id) || {}, { x: p.x, y: p.y })),
         async () => (await call("canvas_move", { positions, by: "person" })).version,
         "Couldn't save where you put it",
       );
+      for (const id of d.ids.length > 4 ? [g.id] : d.ids) ripple(id, false); // a handful each get a ring; a big pile, one
     }
   } else if (g.type === "finalist") {
     const from = g.ghost.getBoundingClientRect();
-    g.ghost.remove();
-    els.get(g.id)?.el.classList.remove("lifted");
+    const el = els.get(g.id)?.el;
+    finPanel.classList.remove("parting");
+    if (el && (cancelled || g.out)) reorderTo({ ...g, out: true }, 0); // back in its own place first
+    const order = trayCards().map((c) => c.dataset.id);
+    if (el && !cancelled && !g.out && !calm()) {
+      // Let go inside the tray: the copy in the hand settles onto the card's place.
+      const to = el.getBoundingClientRect();
+      const ghost = g.ghost;
+      const done = () => (ghost.remove(), el.classList.remove("lifted"));
+      ghost.animate([{ translate: "0 0" }, { translate: `${to.left - from.left}px ${to.top - from.top}px`, rotate: "1.5deg" }], { duration: 180, easing: EASE, fill: "forwards" }).finished.then(done, done);
+    } else {
+      g.ghost.remove();
+      el?.classList.remove("lifted");
+    }
+    if (!cancelled && !g.out && order.join() !== finalistIds().join()) setFinalists(order, "reorder", [], false);
     if (!cancelled && g.out) {
       // It lands where the person dropped it.
       const sr = stage.getBoundingClientRect();
@@ -1557,7 +1894,7 @@ stage.addEventListener("pointermove", (e) => {
 // The card under the cursor, when nothing is being dragged. A finger has no hover.
 stage.addEventListener("pointermove", (e) => {
   if (gesture?.moved || e.pointerType === "touch") return setNear(null);
-  setNear(e.target.closest?.(".card.product") || null, e);
+  setNear(e.target.closest?.(".card.product") || null);
 });
 stage.addEventListener("pointerleave", () => setNear(null));
 stage.addEventListener("pointerup", (e) => endGesture(e, false));
