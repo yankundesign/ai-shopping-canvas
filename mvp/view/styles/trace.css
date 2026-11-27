@@ -117,6 +117,8 @@
 /* Pointing: a measuring label in the agent's blue, in mono. */
 :root[data-style="trace"] .point-chip { left: 8px; bottom: calc(100% + 6px); border-radius: 7px; padding: 2px 8px; font: 500 10.5px/1.5 var(--font-num); }
 :root[data-style="trace"] .point-chip::before { content: "→"; }
+/* The label floats above its card, and the tray's body clips what leaves it, so the row makes room while a finalist is pointed at. */
+:root[data-style="trace"] #fin-row:has(.card.fin.pointed) { padding-top: 30px; }
 :root[data-style="trace"] .marker { border-radius: 9px; font-family: var(--font-num); font-size: 11px; }
 /* The agent's note is quiet: a dark frosted strip with its blue dot, like "Grounded in 3 sources". */
 :root[data-style="trace"] #pointer-note { border-radius: 12px; padding-left: 12px; gap: 8px; background: color-mix(in srgb, var(--ink) 84%, transparent); color: var(--bg); backdrop-filter: blur(10px); font-size: 12px; }
