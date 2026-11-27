@@ -9,7 +9,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { registerAppTool, registerAppResource, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import { z } from "zod";
@@ -19,6 +19,8 @@ import * as S from "./store.mjs";
 import { renderReport, reportData } from "./report.mjs";
 
 const PORT = Number(process.env.PORT || 8787);
+// The address Claude and ChatGPT reach this at: set by hand for a tunnel, or by the host (Render sets its own).
+const PUBLIC_URL = (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || "").replace(/\/$/, "");
 const TOKEN = S.getToken();
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const DEFAULT_STYLE = process.env.STYLE || "trace";
@@ -173,9 +175,11 @@ function viewState(canvas, base) {
     style: canvas.style || DEFAULT_STYLE,
     dev: DEV_PANEL,
     imgBase: `${base}/img/`,
+    now: Date.now(), // the server's clock, so the view can tell a card made just now without trusting its own
     cards: canvas.cards.map((c) => ({
       id: c.id,
       kind: c.kind,
+      createdAt: c.createdAt,
       deleted: !!c.deleted,
       x: c.x ?? null,
       y: c.y ?? null,
@@ -396,10 +400,10 @@ function buildServer(base) {
   const server = new McpServer({ name: "shopping-canvas", version: "0.2.0", title: "Shopping Canvas" }, { instructions: INSTRUCTIONS });
   const VIEW_URI = view().uri;
 
-  registerAppResource(server, "Shopping canvas", VIEW_URI, { description: "The shopping canvas: product cards the person and the agent share." }, async () => ({
+  const canvasAt = (uri) => ({
     contents: [
       {
-        uri: VIEW_URI,
+        uri,
         mimeType: RESOURCE_MIME_TYPE,
         text: view().html,
         _meta: {
@@ -416,7 +420,17 @@ function buildServer(base) {
         },
       },
     ],
-  }));
+  });
+  registerAppResource(server, "Shopping canvas", VIEW_URI, { description: "The shopping canvas: product cards the person and the agent share." }, async () => canvasAt(VIEW_URI));
+  // A host keeps the tool list it read when the connector was added, and with it the canvas's
+  // address from that build. After a rebuild it still asks for that one, so any earlier
+  // address gets the canvas as it is now instead of "not found".
+  server.registerResource(
+    "Shopping canvas (earlier address)",
+    new ResourceTemplate("ui://shopping-canvas/{file}", { list: undefined }),
+    { description: "The shopping canvas, asked for by an address from an earlier build.", mimeType: RESOURCE_MIME_TYPE },
+    async (uri) => canvasAt(uri.href),
+  );
 
   // --- tools the agent uses ---
 
@@ -661,7 +675,7 @@ function buildServer(base) {
     },
   );
 
-  viewTool("canvas_finalists", "The person's finalists, in their order", { canvas_id: z.string(), card_ids: Ids, how: z.enum(["compare", "drag", "remove", "clear", "undo"]).optional() }, (canvas, { card_ids, how }) => {
+  viewTool("canvas_finalists", "The person's finalists, in their order", { canvas_id: z.string(), card_ids: Ids, how: z.enum(["compare", "drag", "remove", "clear", "undo", "reorder"]).optional() }, (canvas, { card_ids, how }) => {
     const before = finalistIds(canvas);
     canvas.finalists = [...new Set(card_ids)].slice(0, MAX_FINALISTS);
     // A card joining the compare table asks for the specs the others already have;
@@ -780,7 +794,7 @@ function buildServer(base) {
 // ---------- HTTP ----------
 
 function baseUrl(req) {
-  if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/$/, "");
+  if (PUBLIC_URL) return PUBLIC_URL;
   const proto = (req.headers["x-forwarded-proto"] || "http").split(",")[0].trim();
   const host = (req.headers["x-forwarded-host"] || req.headers.host || `localhost:${PORT}`).split(",")[0].trim();
   return `${proto}://${host}`;
@@ -804,7 +818,7 @@ function readBody(req, limit = 2_000_000) {
 
 const UCP_VERSION = "2026-08-25";
 // The catalog has to fetch the profile, so it only works with a public address.
-const UCP_PROFILE_URL = process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL.replace(/\/$/, "")}/ucp-agent-profile.json` : null;
+const UCP_PROFILE_URL = PUBLIC_URL ? `${PUBLIC_URL}/ucp-agent-profile.json` : null;
 const UCP_PROFILE = {
   ucp: {
     version: UCP_VERSION,
@@ -870,6 +884,7 @@ const httpServer = http.createServer(async (req, res) => {
       const body = raw ? JSON.parse(raw) : undefined;
       for (const msg of Array.isArray(body) ? body : [body]) {
         if (msg?.method === "tools/call" && !String(msg.params?.name).startsWith("canvas_")) console.log(`call ${msg.params?.name}`);
+        if (msg?.method === "resources/read") console.log(`read ${msg.params?.uri}${msg.params?.uri === view().uri ? "" : " (an earlier build's address)"}`);
         if (msg?.method === "initialize") {
           clients.push({ at: Date.now(), clientInfo: msg.params?.clientInfo, capabilities: msg.params?.capabilities, protocolVersion: msg.params?.protocolVersion });
           if (clients.length > 50) clients.shift();
@@ -930,9 +945,8 @@ httpServer.listen(PORT, () => {
   console.log(`  Style review:                 ${local}/dev/${TOKEN}/styles`);
   console.log(`  Local dev host (fake agent):  ${local}/dev/${TOKEN}`);
   console.log(`  Report:                       ${local}/report/${TOKEN}`);
-  if (process.env.PUBLIC_URL) {
-    const pub = process.env.PUBLIC_URL.replace(/\/$/, "");
-    const connector = `${pub}/mcp/${TOKEN}`;
+  if (PUBLIC_URL) {
+    const connector = `${PUBLIC_URL}/mcp/${TOKEN}`;
     console.log(`\n  Connector URL:  ${connector}`);
     console.log(`  Add to Claude:  https://claude.ai/customize/connectors?modal=add-custom-connector&connectorName=${encodeURIComponent("Shopping Canvas")}&connectorUrl=${encodeURIComponent(connector)}`);
   } else {

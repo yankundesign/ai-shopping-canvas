@@ -1,0 +1,31 @@
+# Render reads this file to set up the shopping canvas server (mvp/).
+# One always-on service with a small disk: the canvases and the key in the
+# connector URL are kept on the disk, so they survive deploys and restarts.
+# Steps: mvp/README.md, "Host it on Render".
+services:
+  - type: web
+    runtime: node
+    name: shopping-canvas
+    rootDir: mvp
+    region: oregon
+    # The smallest paid plan. The free plan sleeps and can't have a disk.
+    plan: 0.5c-512mb
+    branch: main
+    autoDeployTrigger: commit
+    # The canvas is bundled once here, with esbuild from the dev dependencies.
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: node server.mjs
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 24.22.1
+      # Where canvases.json and token.txt live: the disk below.
+      - key: DATA_DIR
+        value: /var/data
+      # Testers don't get the Dev button.
+      - key: DEV_PANEL
+        value: "0"
+    disk:
+      name: canvas-data
+      mountPath: /var/data
+      sizeGB: 1

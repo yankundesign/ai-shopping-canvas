@@ -18,11 +18,13 @@
   --price-size: 20px; --price-weight: 400; --font-price: var(--font); --pop: var(--surface);
   --label-size: 11px; --label-case: none; --label-tracking: 0;
   --r-card: 10px; --r-photo: 0px; --r-ctl: 8px; --r-pill: 999px;
-  --pad: 12px; --photo-inset: 0px; --photo-ratio: 4 / 3; --photo-pad: 10px; --photo-blend: multiply;
+  --pad: 12px; --photo-inset: 0px; --photo-ratio: 4 / 3; --photo-pad: 10px; --photo-fit: contain; --photo-blend: multiply;
   --border-card: 1px solid var(--line); --shadow-card: none;
   --shadow-lift: 0 12px 32px rgba(0, 0, 0, 0.16); --shadow-panel: 0 1px 0 var(--line);
   --ring-sel: 0 0 0 2px var(--sel); --ring-agent: 0 0 0 2px var(--agent), 0 0 0 6px var(--agent-soft);
+  --shadow-hover: var(--shadow-card);
   --dur: 0.18s; --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1); /* lands a little past, then home */
   color-scheme: light;
 }
 :root[data-theme="dark"] { color-scheme: dark; }
@@ -59,22 +61,41 @@ button.primary { background: var(--ink); color: var(--bg); border-color: var(--i
 #stage.panning { cursor: grabbing; }
 #world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 #world.gliding { transition: transform 0.3s var(--ease); }
-#world.tidying .card { transition: left 0.35s var(--ease), top 0.35s var(--ease), box-shadow var(--dur) var(--ease); }
+#stage.gliding { transition: background-position 0.3s var(--ease), background-size 0.3s var(--ease); } /* the dots glide with the cards */
+/* The grid answers a landing: a ring of lit dots spreads from where the card came down
+   (ripple in main.js moves --rr). What the dots look like belongs to the style. */
+@property --rr { syntax: "<length>"; inherits: false; initial-value: 0px; }
+.ripple { position: absolute; pointer-events: none; -webkit-mask-image: radial-gradient(circle, transparent calc(var(--rr) - 58px), #000 calc(var(--rr) - 18px), transparent var(--rr)); mask-image: radial-gradient(circle, transparent calc(var(--rr) - 58px), #000 calc(var(--rr) - 18px), transparent var(--rr)); }
 #marquee { position: absolute; border: 1px solid var(--sel); background: color-mix(in srgb, var(--sel) 8%, transparent); border-radius: 2px; pointer-events: none; z-index: 3; }
 #empty { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; pointer-events: none; }
 
 /* ---------- a card ---------- */
-.card { position: absolute; width: var(--card-w); display: flex; flex-direction: column; background: var(--surface); border: var(--border-card); border-radius: var(--r-card); box-shadow: var(--shadow-card); user-select: none; -webkit-user-select: none; outline: none; transition: box-shadow var(--dur) var(--ease); }
-.card.selected { box-shadow: var(--ring-sel), var(--shadow-card); }
-.card.pointed { box-shadow: var(--ring-agent), var(--shadow-card); }
+/* A card turns and grows about the point it was last picked up by (--gx, --gy: see "the hand" in main.js). */
+.card { --shadow: var(--shadow-card); position: absolute; width: var(--card-w); display: flex; flex-direction: column; background: var(--surface); border: var(--border-card); border-radius: var(--r-card); box-shadow: var(--shadow); user-select: none; -webkit-user-select: none; outline: none; transform-origin: var(--gx, 50%) var(--gy, 50%); transition: box-shadow var(--dur) var(--ease), translate 0.2s var(--ease), scale 0.3s var(--spring); }
+.card.selected { box-shadow: var(--ring-sel), var(--shadow); }
+.card.pointed { box-shadow: var(--ring-agent), var(--shadow); }
 .card.selected.pointed { box-shadow: var(--ring-sel), 0 0 0 4px var(--surface), 0 0 0 6px var(--agent), 0 0 0 10px var(--agent-soft); }
-.card.dragging { z-index: 4; box-shadow: var(--ring-sel), var(--shadow-lift); cursor: grabbing; }
+/* Under the cursor a card rises a little. */
+.card.near:not(.fin):not(.dragging) { translate: 0 -2px; --shadow: var(--shadow-hover); }
+/* Picked up: nearer, so a touch larger, over everything, hanging from where it was taken. */
+.card.dragging { z-index: 9999 !important; scale: 1.03; box-shadow: var(--ring-sel), var(--shadow-lift); cursor: grabbing; transition: box-shadow var(--dur) var(--ease), translate 0.34s var(--spring), scale 0.3s var(--spring); }
 .card:focus-visible { outline: 2px solid var(--sel); outline-offset: 3px; }
 
 .photo { position: relative; margin: var(--photo-inset) var(--photo-inset) 0; aspect-ratio: var(--photo-ratio); background: var(--plate); border-radius: var(--r-photo); display: grid; place-items: center; overflow: hidden; }
 .card:not(.fin) > .photo { border-top-left-radius: max(var(--r-photo), calc(var(--r-card) - var(--photo-inset) - 1px)); border-top-right-radius: max(var(--r-photo), calc(var(--r-card) - var(--photo-inset) - 1px)); }
-.photo img { width: 100%; height: 100%; padding: var(--photo-pad); object-fit: contain; mix-blend-mode: var(--photo-blend); }
+/* The photo fills its plate exactly, so the whole product shows whatever shape the picture is.
+   (Sized by the plate's own height, a square picture grew past it and lost its bottom.) */
+.photo img { position: absolute; inset: 0; width: 100%; height: 100%; padding: var(--photo-pad); object-fit: var(--photo-fit); mix-blend-mode: var(--photo-blend); opacity: 0; }
+.photo img.ready { opacity: 1; transition: opacity 0.3s var(--ease); }
+/* Still loading, or the store page still being read: the plate shimmers, like a request waiting. */
+.photo:has(img:not(.ready)), .photo.reading { background: linear-gradient(90deg, var(--wait-bg) 25%, color-mix(in srgb, var(--wait-bg) 40%, var(--plate)) 50%, var(--wait-bg) 75%) 0 0 / 200% 100%; animation: shimmer 1.5s linear infinite; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+/* No photo: the plate steps back and carries the name's first letter, so it reads as a gap, not a white picture. */
+.photo.empty { background: color-mix(in srgb, var(--ink) 4%, transparent); }
+.initial { font: 600 64px/1 var(--font-name); color: color-mix(in srgb, var(--ink) 10%, transparent); }
+.card.fin .initial { font-size: 40px; }
 .nophoto { color: var(--ink-3); font-size: var(--fs-small); }
+.photo.empty .nophoto { position: absolute; left: 8px; bottom: 6px; font-size: 10px; }
 
 /* The body's children are laid out by the card, so a variant can reorder them.
    Every line is one line high, so all cards are the same height. In order of weight:
@@ -165,8 +186,13 @@ a.src:hover { color: var(--ink); text-decoration: underline; }
 #finalists { --fin-label: 124px; --fin-col: minmax(150px, 220px); }
 #fin-row, #fin-table { display: grid; grid-template-columns: var(--fin-label) repeat(var(--fin-n, 1), var(--fin-col)); column-gap: 12px; }
 #fin-row { align-items: start; padding: 14px 3px 4px; margin: 0 -3px; }
-#fin-row > .card:first-child { grid-column-start: 2; }
-.card.fin { position: relative; width: auto; min-width: 0; --photo-ratio: 16 / 10; --photo-pad: 6px; --name-size: 13.5px; }
+#fin-row > :first-child { grid-column-start: 2; }
+/* Where a card in the hand would go: the finalists step aside and leave this. */
+.slot { align-self: stretch; min-height: 120px; border: 1.5px dashed var(--ink-3); border-radius: var(--r-card); animation: home-in 0.25s var(--ease) both; }
+/* While the row is parted, the table under it no longer lines up, so it steps back. */
+#fin-table { transition: opacity var(--dur) var(--ease); }
+#finalists.parting #fin-table { opacity: 0.3; }
+.card.fin { position: relative; width: auto; min-width: 0; --photo-pad: 4px; --name-size: 13.5px; }
 .card.fin { --price-size: 17px; }
 .card.fin .foot { white-space: nowrap; }
 .card.fin .credit, .card.fin .src, .card.fin .meta.checked { display: none; }
@@ -176,9 +202,23 @@ a.src:hover { color: var(--ink); text-decoration: underline; }
 .card.ghost { position: fixed; z-index: 50; margin: 0; pointer-events: none; box-shadow: var(--shadow-lift); transform: rotate(-1.5deg); transition: transform var(--dur); }
 .card.ghost.out { transform: rotate(0deg) scale(1.04); }
 /* A card dragged over the finalists shows on top of them, faded: dropping puts it in. */
-.card.drop-ghost { position: fixed; z-index: 50; margin: 0; pointer-events: none; transform-origin: 0 0; opacity: 0.65; box-shadow: var(--ring-sel), var(--shadow-lift); animation: drop-ghost-in var(--dur) var(--ease); }
+.drop-ghosts { position: fixed; inset: 0; z-index: 50; pointer-events: none; opacity: 0.65; animation: drop-ghost-in var(--dur) var(--ease); }
+.card.drop-ghost { position: fixed; margin: 0; pointer-events: none; box-shadow: var(--ring-sel), var(--shadow-lift); transition: translate 0.34s var(--spring), rotate 0.34s var(--spring); }
 @keyframes drop-ghost-in { from { opacity: 1; } }
 .putback { padding: 1px 6px; font-size: var(--fs-small); }
+
+/* A card flying between the canvas and the finalists. The card itself waits, hidden, where
+   it is going; these are the copies that make the trip (see "flights" in main.js). */
+.card.flying, .card.arriving { visibility: hidden; } /* arriving: not dealt yet (see "arrival" in main.js) */
+.card.flyer { position: fixed !important; left: 0; top: 0; z-index: 50; margin: 0; pointer-events: none; transform-origin: 0 0; box-shadow: var(--shadow-lift) !important; animation: none; will-change: transform, opacity; }
+/* Where a finalist came from, and where it goes back to. It carries the finalist's number. */
+.home { position: absolute; width: var(--card-w); border: 1.5px dashed var(--id, var(--ink-3)); border-radius: var(--r-card); opacity: 0.5; pointer-events: none; animation: home-in 0.5s var(--ease) both; transition: opacity var(--dur) var(--ease), background var(--dur) var(--ease); }
+.home::before { content: attr(data-n); position: absolute; right: 9px; top: 8px; width: 17px; height: 17px; border-radius: 50%; display: grid; place-items: center; background: var(--id, var(--ink-3)); color: #fff; font: 600 10px/1 var(--font-num); }
+@keyframes home-in { from { opacity: 0; } }
+/* Over a finalist, its outline answers: this is the one. */
+#stage:has(.card.fin[data-n="1"]:hover) .home[data-n="1"], #stage:has(.card.fin[data-n="2"]:hover) .home[data-n="2"],
+#stage:has(.card.fin[data-n="3"]:hover) .home[data-n="3"], #stage:has(.card.fin[data-n="4"]:hover) .home[data-n="4"] { opacity: 1; background: color-mix(in srgb, var(--id, var(--ink-3)) 10%, transparent); }
+.tray-ghost { position: absolute; z-index: 4; pointer-events: none; background: var(--panel); backdrop-filter: blur(var(--panel-blur)); border: 1px solid var(--line); }
 #drop-hint { position: absolute; left: 10px; right: 10px; top: 10px; height: 64px; z-index: 4; display: grid; place-items: center; color: var(--ink-2); background: var(--panel); backdrop-filter: blur(var(--panel-blur)); border: 1.5px dashed var(--ink-3); border-radius: calc(var(--r-card) + 4px); pointer-events: none; animation: point-in 0.2s var(--ease) both; }
 
 /* Numbers as lines, with the cards placed on them. */
@@ -199,6 +239,8 @@ a.src:hover { color: var(--ink); text-decoration: underline; }
 .ft-common, .ft-empty { grid-column: 2 / -1; color: var(--ink-2); }
 .ft-empty { grid-column: 1 / -1; padding: 10px 0 2px; border-top: 1px solid var(--line); }
 .ft-cell.arrived .val { animation: arrive 0.6s var(--ease) both; }
+/* The rows draw in under the cards as they land, one after another. */
+#fin-table.draw > * { animation: arrive 0.5s var(--ease) both; animation-delay: calc(220ms + var(--r, 0) * 50ms); }
 
 /* ---------- controls on the stage ---------- */
 #dock, #zoom, #composer { position: absolute; z-index: 6; display: flex; align-items: center; background: var(--panel); backdrop-filter: blur(var(--panel-blur)); border: 1px solid var(--line); box-shadow: var(--shadow-lift); }

@@ -17,11 +17,12 @@
   --fs: 12.5px; --name-size: 13.5px; --name-weight: 600;
   --label-size: 10.5px;
   --r-card: 16px; --r-photo: 9px; --r-ctl: 10px; --pad: 12px;
-  --photo-inset: 6px; --photo-pad: 10px; --photo-blend: normal;
+  --photo-inset: 6px; --photo-pad: 6px; --photo-blend: normal;
   --border-card: 1px solid #ffffffcc;
   --shadow-card: 0 1px 1px rgba(17, 19, 21, 0.04), 0 10px 30px rgba(17, 19, 21, 0.08);
+  --shadow-hover: 0 2px 2px rgba(17, 19, 21, 0.05), 0 16px 36px rgba(17, 19, 21, 0.13);
   --shadow-lift: 0 16px 40px rgba(17, 19, 21, 0.18);
-  --ring-sel: 0 0 0 1.5px var(--sel);
+  --ring-sel: 0 0 0 2px var(--sel);
   --ring-agent: 0 0 0 1.5px var(--agent), 0 0 0 5px var(--agent-soft);
   --dur: 0.16s;
   --c1: #2f6bff; --c2: #8b46ff; --c3: #f0245e; --c4: #f08a24;
@@ -34,8 +35,15 @@
   --sel: #eef0f1; --agent: #6f9bff; --agent-ink: #06122e; --agent-soft: #6f9bff33;
   --flag: #ff6b94; --wait-bg: #2a2f33; --wait-ink: #a2a9ae; --pop: #1e2225;
   --border-card: 1px solid #ffffff1a;
-  --shadow-card: 0 10px 30px rgba(0, 0, 0, 0.35); --shadow-lift: 0 18px 44px rgba(0, 0, 0, 0.6);
+  --shadow-card: 0 10px 30px rgba(0, 0, 0, 0.35); --shadow-hover: 0 14px 36px rgba(0, 0, 0, 0.48); --shadow-lift: 0 18px 44px rgba(0, 0, 0, 0.6);
 }
+
+/* The grid answers. Lit dots for a landing: ink for the person's hand, blue for the agent's. */
+:root[data-style="trace"] .ripple { background-image: radial-gradient(circle, var(--ink-2) 1.5px, transparent 1.9px); }
+:root[data-style="trace"] .ripple.agent { background-image: radial-gradient(circle, var(--agent) 1.6px, transparent 2px); }
+/* An empty canvas breathes: the dots in the middle come up and settle back. */
+:root[data-style="trace"] #stage:has(#empty:not([hidden]))::before { content: ""; position: absolute; inset: 0; pointer-events: none; background-image: radial-gradient(circle, var(--ink-2) 1.4px, transparent 1.8px); background-size: inherit; background-position: inherit; -webkit-mask-image: radial-gradient(ellipse 40% 44% at 50% 50%, #000, transparent); mask-image: radial-gradient(ellipse 40% 44% at 50% 50%, #000, transparent); opacity: 0.35; animation: trace-breathe 5s ease-in-out infinite; }
+@keyframes trace-breathe { 0%, 100% { opacity: 0.06; } 50% { opacity: 0.7; } }
 
 /* Cards: frosted, with the store as a file name above the photo. */
 :root[data-style="trace"] .card:not(.request) { backdrop-filter: blur(14px) saturate(1.2); }
@@ -64,12 +72,24 @@
 :root[data-style="trace"] .tag { background: var(--ink); color: var(--bg); }
 :root[data-style="trace"] .card.request { border: 1px dashed var(--ink-3); background: color-mix(in srgb, var(--surface) 40%, transparent); }
 :root[data-style="trace"] .req .hint { font-family: var(--font-num); font-size: 14px; font-weight: 500; }
+/* A waiting card breathes like the empty canvas: the dots under it come up in the agent's colour and
+   settle back, on the canvas's own grid (--wx/--wy are where the card is), around a soft glow. The hint holds
+   still in a clear middle, and the
+   bar under it keeps the same breath, so the card has one rhythm. In the hand it is off the grid: no dots. */
+:root[data-style="trace"] .card.request::before, :root[data-style="trace"] .card.request::after { content: ""; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; opacity: 0.4; animation: trace-wait 4.5s ease-in-out infinite; }
+:root[data-style="trace"] .card.request::before { background: radial-gradient(circle, var(--agent) 1.5px, transparent 1.9px) calc(-1 * var(--wx, 0px)) calc(-1 * var(--wy, 0px)) / var(--bg-size) var(--bg-size); -webkit-mask-image: radial-gradient(ellipse 75% 70% at 50% 50%, #000 30%, transparent), radial-gradient(ellipse 62% 26% at 50% 50%, transparent 60%, #000); mask-image: radial-gradient(ellipse 75% 70% at 50% 50%, #000 30%, transparent), radial-gradient(ellipse 62% 26% at 50% 50%, transparent 60%, #000); -webkit-mask-composite: source-in; mask-composite: intersect; }
+:root[data-style="trace"] .card.request::after { background: radial-gradient(ellipse 60% 55% at 50% 50%, var(--agent-soft), transparent); }
+:root[data-style="trace"] .card.request:is(.flyer, .dragging)::before, :root[data-style="trace"] .card.request:is(.flyer, .dragging)::after { display: none; }
+:root[data-style="trace"] .req { position: relative; z-index: 1; }
+:root[data-style="trace"] .req .wait { background: var(--wait-bg); animation: trace-wait-bar 4.5s ease-in-out infinite; }
+@keyframes trace-wait { 0%, 100% { opacity: 0.1; } 50% { opacity: 0.95; } }
+@keyframes trace-wait-bar { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+/* The answer blooms in where it waited: the agent's ring, fading as the card settles. */
+:root[data-style="trace"] .card.landed { animation: land 0.5s var(--ease) both, trace-card-bloom 1.8s var(--ease) both; }
+@keyframes trace-card-bloom { 0%, 25% { box-shadow: var(--ring-agent), var(--shadow); } }
 :root[data-style="trace"] #scope, :root[data-style="trace"] #zoom { font-family: var(--font-num); font-size: 11px; }
 :root[data-style="trace"] #bar { box-shadow: none; background: transparent; }
 :root[data-style="trace"] body { background-image: none; }
-
-/* Selection carries a dark measuring label, like the size labels in the reference. */
-:root[data-style="trace"] .card.selected:not(.fin)::after { content: "selected"; position: absolute; right: 8px; bottom: calc(100% + 6px); padding: 2px 7px; border-radius: 7px; background: color-mix(in srgb, var(--ink) 78%, transparent); color: var(--bg); font: 10px/1.4 var(--font-num); backdrop-filter: blur(6px); }
 
 /* An answer blooms in where the skeleton bar was. */
 :root[data-style="trace"] .detail.arrived dd { animation: none; }
@@ -97,6 +117,8 @@
 /* Pointing: a measuring label in the agent's blue, in mono. */
 :root[data-style="trace"] .point-chip { left: 8px; bottom: calc(100% + 6px); border-radius: 7px; padding: 2px 8px; font: 500 10.5px/1.5 var(--font-num); }
 :root[data-style="trace"] .point-chip::before { content: "→"; }
+/* The label floats above its card, and the tray's body clips what leaves it, so the row makes room while a finalist is pointed at. */
+:root[data-style="trace"] #fin-row:has(.card.fin.pointed) { padding-top: 30px; }
 :root[data-style="trace"] .marker { border-radius: 9px; font-family: var(--font-num); font-size: 11px; }
 /* The agent's note is quiet: a dark frosted strip with its blue dot, like "Grounded in 3 sources". */
 :root[data-style="trace"] #pointer-note { border-radius: 12px; padding-left: 12px; gap: 8px; background: color-mix(in srgb, var(--ink) 84%, transparent); color: var(--bg); backdrop-filter: blur(10px); font-size: 12px; }
