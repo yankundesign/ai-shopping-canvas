@@ -416,6 +416,7 @@ let flyFrom = null; // id -> rect: a card let go by hand takes off from where it
 let trayShift = false; // the person just changed the finalists: keep the canvas clear of the tray
 let drawTimer = null;
 const calm = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+const still = () => calm() || document.hidden; // no flights: the person asked for none, or isn't looking
 
 /** A spring that settles: a little past the target (about 2%), then home. 0 at t = 0, 1 at t = 1. */
 function spring(t) {
@@ -464,7 +465,7 @@ function endFlight(id) {
 function takeOff(fin) {
   const leaving = new Map();
   const from = flyFrom;
-  if (!loadedOnce || calm() || document.hidden) return leaving;
+  if (!loadedOnce || still()) return leaving;
   for (const [id, { el }] of els) {
     const c = byId(id);
     if (!c || c.deleted || !el.isConnected || el.classList.contains("fin") === fin.includes(id)) continue;
@@ -551,11 +552,71 @@ function trashSelected() {
   const fin = finalistIds();
   undoStack.push({ ids, wereFinalists: ids.filter((id) => fin.includes(id)) });
   selection.clear();
+  const going = still() ? [] : ids.map((id) => els.get(id)?.el).filter((el) => el?.isConnected).map((el) => ({ from: el.getBoundingClientRect(), copy: copyOf(el) }));
   optimistic(
     (s) => s.cards.forEach((c) => ids.includes(c.id) && (c.deleted = true)),
     async () => (await call("canvas_delete", { card_ids: ids })).version,
     "Couldn't delete",
   );
+  intoUndo(going); // Undo is showing by now
+}
+
+// Deleted cards go into the Undo button, and come back out of it: where a thing went is
+// where to get it back.
+
+const DELETE_MS = 360;
+const SPECK = 0.06; // how small a card is when it reaches the button
+
+function undoSpot() {
+  const r = $("#undo").getBoundingClientRect();
+  return r.width ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null;
+}
+
+function intoUndo(going) {
+  const spot = undoSpot();
+  if (!spot || !going.length) return;
+  going.sort((a, b) => a.from.left - b.from.left || a.from.top - b.from.top);
+  going.forEach(({ from, copy }, i) => {
+    const s = from.width / parseFloat(copy.style.width);
+    const tilt = clamp((spot.x - from.left) / 240, -1, 1) * 8;
+    document.body.append(copy);
+    const end = () => copy.remove();
+    copy
+      .animate(
+        [
+          { transform: `translate(${from.left}px, ${from.top}px) rotate(0deg) scale(${s})`, opacity: 1 },
+          { opacity: 1, offset: 0.7 },
+          { transform: `translate(${spot.x - (from.width * SPECK) / 2}px, ${spot.y - (from.height * SPECK) / 2}px) rotate(${tilt}deg) scale(${s * SPECK})`, opacity: 0 },
+        ],
+        { duration: DELETE_MS, delay: i * 40, fill: "both", easing: "cubic-bezier(0.5, 0, 0.85, 0.35)" }, // slow off the canvas, fast into the button
+      )
+      .finished.then(end, end);
+  });
+  // The button takes them: one small swell as the last card arrives.
+  $("#undo").animate([{ scale: 1 }, { scale: 1.14 }, { scale: 1 }], { duration: 260, delay: DELETE_MS - 80 + (going.length - 1) * 40, easing: "ease-out" });
+}
+
+function outOfUndo(ids, spot) {
+  if (!spot) return;
+  let i = 0;
+  for (const id of ids) {
+    const entry = els.get(id);
+    if (!entry?.el.isConnected) continue;
+    entry.landed = 0; // it flies in, so it doesn't also fade in
+    entry.el.classList.remove("landed");
+    const to = entry.el.getBoundingClientRect();
+    if (!to.width) continue;
+    const from = { left: spot.x - (to.width * SPECK) / 2, top: spot.y - (to.height * SPECK) / 2, width: to.width * SPECK };
+    const now = copyOf(entry.el);
+    const timing = { duration: FLIGHT_MS, delay: i++ * STAGGER_MS, fill: "both", easing: "linear" };
+    document.body.append(now);
+    const trip = now.animate(flightFrames(from, to, parseFloat(now.style.width), clamp((to.left - from.left) / 240, -1, 1) * 2.5), timing);
+    now.animate([{ opacity: 0 }, { opacity: 1 }], { ...timing, duration: FLIGHT_MS * 0.25 });
+    const flight = { nodes: [now], home: null };
+    flights.set(id, flight);
+    entry.el.classList.add("flying");
+    trip.finished.then(() => flights.get(id) === flight && endFlight(id)).catch(() => {});
+  }
 }
 
 function undo() {
@@ -564,6 +625,7 @@ function undo() {
   if (last.finalists) return setFinalists(last.finalists, "undo", last.positions);
   if (last.positions) return moveCards(last.positions, "Couldn't undo");
   const finalists = [...finalistIds(), ...last.wereFinalists];
+  const spot = still() ? null : undoSpot(); // before the button goes, if this was the last thing to undo
   optimistic(
     (s) => {
       s.cards.forEach((c) => last.ids.includes(c.id) && (c.deleted = false));
@@ -572,6 +634,7 @@ function undo() {
     async () => (await call("canvas_restore", { card_ids: last.ids, finalists })).version,
     "Couldn't undo",
   );
+  outOfUndo(last.ids, spot);
 }
 
 // ---------- geometry ----------
@@ -742,15 +805,40 @@ function tidy() {
   moveCards(positions, "Couldn't tidy");
 }
 
-/** Moves cards together, sliding them into place, and fits the view to the result. */
+/**
+ * A wave: each card slides to its new place in turn, in reading order, leaning into the way
+ * it goes and settling a little past. `was` is where each one came from.
+ */
+function wave(positions, was) {
+  if (still()) return;
+  const order = [...positions].sort((a, b) => a.y - b.y || a.x - b.x);
+  const step = Math.min(25, 300 / order.length); // the whole wave sets off within 0.3 s
+  const N = 24;
+  order.forEach((p, i) => {
+    const el = els.get(p.id)?.el;
+    const from = was.get(p.id);
+    if (!el || from?.x == null || (from.x === p.x && from.y === p.y)) return;
+    const dx = from.x - p.x;
+    const dy = from.y - p.y;
+    const lean = clamp(-dx / 240, -1, 1) * 2;
+    const frames = Array.from({ length: N + 1 }, (_, k) => {
+      const q = k === N ? 1 : spring(k / N);
+      const mid = clamp(q, 0, 1);
+      return { translate: `${dx * (1 - q)}px ${dy * (1 - q)}px`, rotate: `${lean * 4 * mid * (1 - mid)}deg` };
+    });
+    el.animate(frames, { duration: FLIGHT_MS, delay: i * step, fill: "backwards", easing: "linear" });
+  });
+}
+
+/** Moves cards together, as a wave, and fits the view to the result. */
 function moveCards(positions, failText) {
-  world.classList.add("tidying");
-  setTimeout(() => world.classList.remove("tidying"), 420);
+  const was = new Map(positions.map((p) => [p.id, { x: byId(p.id)?.x, y: byId(p.id)?.y }]));
   optimistic(
     (s) => positions.forEach((p) => Object.assign(s.cards.find((k) => k.id === p.id) || {}, { x: p.x, y: p.y })),
     async () => (await call("canvas_move", { positions, by: "person" })).version,
     failText,
   );
+  wave(positions, was);
   glide();
   fit();
 }

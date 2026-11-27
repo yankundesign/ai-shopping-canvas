@@ -62,7 +62,6 @@ button.primary { background: var(--ink); color: var(--bg); border-color: var(--i
 #world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 #world.gliding { transition: transform 0.3s var(--ease); }
 #stage.gliding { transition: background-position 0.3s var(--ease), background-size 0.3s var(--ease); } /* the dots glide with the cards */
-#world.tidying .card { transition: left 0.35s var(--ease), top 0.35s var(--ease), box-shadow var(--dur) var(--ease), translate 0.2s var(--ease), scale 0.3s var(--spring); }
 #marquee { position: absolute; border: 1px solid var(--sel); background: color-mix(in srgb, var(--sel) 8%, transparent); border-radius: 2px; pointer-events: none; z-index: 3; }
 #empty { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; pointer-events: none; }
 
