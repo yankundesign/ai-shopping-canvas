@@ -19,6 +19,8 @@ import * as S from "./store.mjs";
 import { renderReport, reportData } from "./report.mjs";
 
 const PORT = Number(process.env.PORT || 8787);
+// The address Claude and ChatGPT reach this at: set by hand for a tunnel, or by the host (Render sets its own).
+const PUBLIC_URL = (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || "").replace(/\/$/, "");
 const TOKEN = S.getToken();
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const DEFAULT_STYLE = process.env.STYLE || "trace";
@@ -792,7 +794,7 @@ function buildServer(base) {
 // ---------- HTTP ----------
 
 function baseUrl(req) {
-  if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/$/, "");
+  if (PUBLIC_URL) return PUBLIC_URL;
   const proto = (req.headers["x-forwarded-proto"] || "http").split(",")[0].trim();
   const host = (req.headers["x-forwarded-host"] || req.headers.host || `localhost:${PORT}`).split(",")[0].trim();
   return `${proto}://${host}`;
@@ -816,7 +818,7 @@ function readBody(req, limit = 2_000_000) {
 
 const UCP_VERSION = "2026-08-25";
 // The catalog has to fetch the profile, so it only works with a public address.
-const UCP_PROFILE_URL = process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL.replace(/\/$/, "")}/ucp-agent-profile.json` : null;
+const UCP_PROFILE_URL = PUBLIC_URL ? `${PUBLIC_URL}/ucp-agent-profile.json` : null;
 const UCP_PROFILE = {
   ucp: {
     version: UCP_VERSION,
@@ -943,9 +945,8 @@ httpServer.listen(PORT, () => {
   console.log(`  Style review:                 ${local}/dev/${TOKEN}/styles`);
   console.log(`  Local dev host (fake agent):  ${local}/dev/${TOKEN}`);
   console.log(`  Report:                       ${local}/report/${TOKEN}`);
-  if (process.env.PUBLIC_URL) {
-    const pub = process.env.PUBLIC_URL.replace(/\/$/, "");
-    const connector = `${pub}/mcp/${TOKEN}`;
+  if (PUBLIC_URL) {
+    const connector = `${PUBLIC_URL}/mcp/${TOKEN}`;
     console.log(`\n  Connector URL:  ${connector}`);
     console.log(`  Add to Claude:  https://claude.ai/customize/connectors?modal=add-custom-connector&connectorName=${encodeURIComponent("Shopping Canvas")}&connectorUrl=${encodeURIComponent(connector)}`);
   } else {

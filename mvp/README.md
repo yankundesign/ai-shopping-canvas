@@ -28,9 +28,28 @@ cloudflared tunnel --protocol http2 --url http://localhost:8787
 cd ~/ai-shopping/mvp && PUBLIC_URL=https://YOUR-TUNNEL.trycloudflare.com npm start
 ```
 
-It prints the connector URL and a one-click **Add to Claude** link. For ChatGPT: chatgpt.com/plugins, **+**, **Add custom MCP server**, paste the connector URL, **No authentication**. After the tools change, click Refresh on the plugin in ChatGPT; in Claude, start a new chat. The quick-tunnel address changes on every restart, so give the server a fixed address before the five-person test.
+It prints the connector URL and a one-click **Add to Claude** link. For ChatGPT: chatgpt.com/plugins, **+**, **Add custom MCP server**, paste the connector URL, **No authentication**. After the tools change, click Refresh on the plugin in ChatGPT; in Claude, start a new chat. The quick-tunnel address changes on every restart; for a fixed address, see Host it on Render below.
 
 Settings, as environment variables: `STYLE` picks the look when there is more than one (Trace is the default), and `DEV_PANEL=0` hides the Dev button for the five-person test.
+
+## Host it on Render
+
+For a link that lasts, such as the five-person test. Not deployed yet: the server was only started the way Render starts it, on this Mac.
+
+[render.yaml](../render.yaml) at the top of the repo describes the setup: one always-on service on the smallest paid plan, built from `mvp/` on every push to `main`, with a 1 GB disk at `/var/data` for `canvases.json` and `token.txt`. The server takes its public address from Render (`RENDER_EXTERNAL_URL`), so there is no `PUBLIC_URL` to set.
+
+1. Merge the work into `main`; Render deploys that branch.
+2. On render.com: **New**, **Blueprint**, pick this repo, and apply. Render reads `render.yaml`.
+3. When the deploy is live, open the service's **Logs**. The server prints the connector URL and the **Add to Claude** link, the same as it does locally.
+4. Add the connector in Claude and ChatGPT with that URL.
+
+Things to know:
+
+- **The link is fixed.** The key in it is made on the first start and kept on the disk. Delete `/var/data/token.txt` and restart to change it.
+- **A deploy takes the canvas offline for a moment**, because a service with a disk stops before its replacement starts.
+- **One copy only.** Canvases live in this one process and one file, so the service can't be scaled to more instances.
+- **Stores may refuse a cloud address** more often than a home one. Check that cards still get photos and prices before the test.
+- The Dev button is off there (`DEV_PANEL=0`). Your local canvases in `mvp/data/` are separate from the hosted ones.
 
 ## Prompt tests, before testing by hand
 
